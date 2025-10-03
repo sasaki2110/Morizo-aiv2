@@ -1,0 +1,42 @@
+# FastAPI関連
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.6
+
+# AI/ML関連
+openai>=1.50.0
+langchain>=0.1.0
+langchain-openai>=0.1.0
+langchain-core>=0.1.0
+langchain-community>=0.0.20
+
+# ベクトルデータベース
+chromadb>=0.4.0
+
+# Web検索API
+perplexity-api>=0.1.0
+requests>=2.31.0
+
+# データベース・認証
+supabase>=2.19.0
+
+# MCP関連
+fastmcp>=0.1.0
+anyio>=4.5.0
+websockets>=15.0.0
+
+# データ処理
+pandas>=2.0.0
+numpy>=1.24.0
+
+# テキスト処理
+nltk>=3.8.0
+spacy>=3.7.0
+
+# 日付処理
+python-dateutil>=2.8.0
+
+# その他
+httpx>=0.27.1
+python-dotenv>=1.0.0
+pydantic>=2.5.0
