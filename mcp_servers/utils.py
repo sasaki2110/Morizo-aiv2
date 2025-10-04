@@ -13,12 +13,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def get_authenticated_client(user_id: str) -> Client:
+def get_authenticated_client(user_id: str, token: Optional[str] = None) -> Client:
     """
     認証済みのSupabaseクライアントを取得
     
     Args:
         user_id: ユーザーID（認証はAPI層で完了済み）
+        token: 認証トークン（オプション）
     
     Returns:
         Supabaseクライアント
@@ -33,5 +34,9 @@ def get_authenticated_client(user_id: str) -> Client:
         raise ValueError("SUPABASE_URL and SUPABASE_KEY are required")
     
     client = create_client(supabase_url, supabase_key)
-    # 注意: 実際の認証はAPI層で完了済み、user_idでユーザー識別
+    
+    # 認証トークンが提供されている場合はセッションを設定
+    if token:
+        client.auth.set_session(token, "")
+    
     return client

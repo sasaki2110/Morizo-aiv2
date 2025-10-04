@@ -18,7 +18,7 @@ test_util = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(test_util)
 
 # MCPクライアントのインポート
-sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), "mcp"))
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), "mcp_servers"))
 from client import MCPClient
 from config.loggers import GenericLogger
 from config.logging import setup_logging
@@ -26,9 +26,7 @@ from config.logging import setup_logging
 
 async def test_inventory_add_integration():
     """Test inventory_add operation through MCP client integration"""
-    # ロギング設定
-    setup_logging()
-    logger = GenericLogger("test", "inventory_add_integration")
+    logger = GenericLogger("test", "inventory_add_integration", initialize_logging=False)
     
     logger.info("🧪 [TEST] Testing Inventory Add operation through MCP integration...")
     
@@ -101,9 +99,7 @@ async def test_inventory_add_integration():
 
 async def test_inventory_list_integration():
     """Test inventory_list operation through MCP client integration"""
-    # ロギング設定
-    setup_logging()
-    logger = GenericLogger("test", "inventory_list_integration")
+    logger = GenericLogger("test", "inventory_list_integration", initialize_logging=False)
     
     logger.info("🧪 [TEST] Testing Inventory List operation through MCP integration...")
     
@@ -134,6 +130,10 @@ async def test_inventory_list_integration():
             },
             token=token
         )
+        
+        # デバッグ用：resultの型を確認
+        logger.info(f"🔍 [DEBUG] Result type: {type(result)}")
+        logger.info(f"🔍 [DEBUG] Result content: {result}")
         
         if result.get("success"):
             logger.info(f"✅ [TEST] MCP inventory list successful: {result}")
@@ -167,6 +167,9 @@ async def test_inventory_list_integration():
 
 async def main():
     """メインテスト関数"""
+    # ロギング設定（1回だけ実行）
+    setup_logging()
+    
     print("🚀 Starting Inventory Add Integration Test")
     print("=" * 60)
     

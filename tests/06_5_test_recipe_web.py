@@ -21,7 +21,7 @@ load_dotenv()
 from config.logging import setup_logging
 setup_logging()
 
-from mcp.recipe_web import GoogleSearchClient, prioritize_recipes, filter_recipe_results
+from mcp_servers.recipe_web import GoogleSearchClient, prioritize_recipes, filter_recipe_results
 from config.loggers import GenericLogger
 
 # ロガーの初期化

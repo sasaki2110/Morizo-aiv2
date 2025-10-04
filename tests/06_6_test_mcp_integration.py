@@ -68,8 +68,8 @@ async def test_inventory_list():
             return []
         
         # 直接CRUDクラスを使用
-        from mcp.inventory_crud import InventoryCRUD
-        from mcp.utils import get_authenticated_client
+        from mcp_servers.inventory_crud import InventoryCRUD
+        from mcp_servers.utils import get_authenticated_client
         crud = InventoryCRUD()
         
         client = get_authenticated_client(test_user_id)
@@ -112,7 +112,7 @@ async def test_menu_generation(inventory_items):
         item_names = [item.get('item_name', '') for item in inventory_items if item.get('item_name')]
         
         # 直接LLMクライアントを使用
-        from mcp.recipe_llm import RecipeLLM
+        from mcp_servers.recipe_llm import RecipeLLM
         llm_client = RecipeLLM()
         
         result = await llm_client.generate_menu_titles(
@@ -170,7 +170,7 @@ async def test_recipe_search(menu_titles):
             return []
         
         # 直接WebSearchClientを使用
-        from mcp.recipe_web import GoogleSearchClient, prioritize_recipes, filter_recipe_results
+        from mcp_servers.recipe_web import GoogleSearchClient, prioritize_recipes, filter_recipe_results
         search_client = GoogleSearchClient()
         
         all_recipes = []

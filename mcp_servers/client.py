@@ -56,7 +56,7 @@ class MCPClient:
         self.logger.info("🔐 [MCP] Authenticated client created")
         return client
     
-    def call_tool(self, tool_name: str, parameters: Dict[str, Any], token: str) -> Dict[str, Any]:
+    async def call_tool(self, tool_name: str, parameters: Dict[str, Any], token: str) -> Dict[str, Any]:
         """MCPツールを呼び出し"""
         self.logger.info(f"🔧 [MCP] Calling tool: {tool_name}")
         self.logger.debug(f"📝 [MCP] Parameters: {parameters}")
@@ -67,7 +67,7 @@ class MCPClient:
                 raise ValueError("Authentication failed")
             
             # ツール呼び出し（各MCPツールに委譲）
-            result = self._execute_tool(tool_name, parameters, token)
+            result = await self._execute_tool(tool_name, parameters, token)
             
             self.logger.info(f"✅ [MCP] Tool {tool_name} completed successfully")
             self.logger.debug(f"📊 [MCP] Result: {result}")
@@ -86,30 +86,33 @@ class MCPClient:
                 "tool": tool_name
             }
     
-    def _execute_tool(self, tool_name: str, parameters: Dict[str, Any], token: str) -> Any:
+    async def _execute_tool(self, tool_name: str, parameters: Dict[str, Any], token: str) -> Any:
         """ツール実行の実装（各MCPツールに委譲）"""
         # ツール名に基づいて適切なMCPツールを呼び出し
         if tool_name.startswith("inventory_"):
-            from .inventory_mcp import InventoryMCP
+            from mcp_servers.inventory_mcp import InventoryMCP
             mcp = InventoryMCP()
-            return mcp.execute(tool_name, parameters, token)
+            return await mcp.execute(tool_name, parameters, token)
         
         elif tool_name.startswith("recipe_history_"):
-            from .recipe_history_mcp import RecipeHistoryMCP
+            from mcp_servers.recipe_history_mcp import RecipeHistoryMCP
             mcp = RecipeHistoryMCP()
-            return mcp.execute(tool_name, parameters, token)
+            return await mcp.execute(tool_name, parameters, token)
         
         elif tool_name.startswith("recipe_"):
-            from .recipe_mcp import RecipeMCP
+            from mcp_servers.recipe_mcp import RecipeMCP
             mcp = RecipeMCP()
-            return mcp.execute(tool_name, parameters, token)
+            return await mcp.execute(tool_name, parameters, token)
         
-        else:
-            raise ValueError(f"Unknown tool: {tool_name}")
+    def cleanup(self):
+        """リソースのクリーンアップ"""
+        self.logger.info("🔧 [MCP] MCPクライアントのクリーンアップ")
+        # 必要に応じてリソースのクリーンアップ処理を追加
+        pass
 
 
+# テスト実行
 if __name__ == "__main__":
-    # テスト実行
     print("🧪 Testing MCP Client...")
     
     try:

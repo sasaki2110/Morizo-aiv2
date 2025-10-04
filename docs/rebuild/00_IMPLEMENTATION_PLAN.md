@@ -160,12 +160,12 @@ services/
 
 ### 実装ファイル
 ```
-mcp/
+mcp_servers/
 ├── __init__.py
 ├── client.py              # MCPClient (100行以下)
-├── recipe_mcp.py          # RecipeMCP (100行以下)
-├── inventory_mcp.py       # InventoryMCP (100行以下)
-└── recipe_history_mcp.py  # RecipeHistoryMCP (100行以下)
+├── recipe_mcp_servers.py          # RecipeMCP (100行以下)
+├── inventory_mcp_servers.py       # InventoryMCP (100行以下)
+└── recipe_history_mcp_servers.py  # RecipeHistoryMCP (100行以下)
 ```
 
 ### 実装順序
