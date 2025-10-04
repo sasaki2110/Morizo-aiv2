@@ -10,7 +10,9 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 from mcp import mcp
 
-from .recipe_llm import RecipeLLM
+from mcp.recipe_llm import RecipeLLM
+from mcp.recipe_web import search_client, prioritize_recipes, filter_recipe_results
+from mcp.utils import get_authenticated_client
 from config.loggers import GenericLogger
 
 # .envファイルを読み込み
@@ -22,19 +24,6 @@ mcp = mcp.MCPServer("recipe-mcp")
 # 処理クラスのインスタンス
 llm_client = RecipeLLM()
 logger = GenericLogger("mcp", "recipe_server", initialize_logging=False)
-
-
-def get_authenticated_client(user_id: str) -> Client:
-    """認証済みのSupabaseクライアントを取得"""
-    supabase_url = os.getenv('SUPABASE_URL')
-    supabase_key = os.getenv('SUPABASE_KEY')
-    
-    if not all([supabase_url, supabase_key]):
-        raise ValueError("SUPABASE_URL and SUPABASE_KEY are required")
-    
-    client = create_client(supabase_url, supabase_key)
-    # 注意: 実際の認証はAPI層で完了済み、user_idでユーザー識別
-    return client
 
 
 # LLM推論ツール
@@ -203,6 +192,46 @@ async def generate_menu_plan_with_history(
     except Exception as e:
         logger.error(f"❌ [MCP] Menu plan generation exception: {e}")
         return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+async def search_recipe_from_web(
+    recipe_titles: List[str]
+) -> List[Dict[str, Any]]:
+    """
+    Web検索による具体的レシピ取得
+    
+    Args:
+        recipe_titles: 検索するレシピタイトルリスト
+    
+    Returns:
+        検索されたレシピのリスト（URL、説明、サイト情報を含む）
+    """
+    logger.info(f"🌐 [MCP] Searching recipes from web: {recipe_titles}")
+    
+    try:
+        all_recipes = []
+        
+        # 各タイトルに対して検索を実行
+        for title in recipe_titles:
+            recipes = await search_client.search_recipes(title, num_results=3)
+            
+            # レシピをフィルタリング・優先順位付け
+            filtered_recipes = filter_recipe_results(recipes)
+            prioritized_recipes = prioritize_recipes(filtered_recipes)
+            
+            # タイトル情報を追加
+            for recipe in prioritized_recipes:
+                recipe['search_title'] = title
+            
+            all_recipes.extend(prioritized_recipes)
+        
+        logger.info(f"✅ [MCP] Found {len(all_recipes)} recipes from web search")
+        return all_recipes
+        
+    except Exception as e:
+        logger.error(f"❌ [MCP] Web search failed: {e}")
+        return []
 
 
 if __name__ == "__main__":

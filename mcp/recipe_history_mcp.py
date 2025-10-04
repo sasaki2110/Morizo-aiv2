@@ -11,6 +11,7 @@ from supabase import create_client, Client
 from mcp import mcp
 
 from .recipe_history_crud import RecipeHistoryCRUD
+from .utils import get_authenticated_client
 from config.loggers import GenericLogger
 
 # .envファイルを読み込み
@@ -22,19 +23,6 @@ mcp = mcp.MCPServer("recipe-history-mcp")
 # 処理クラスのインスタンス
 crud = RecipeHistoryCRUD()
 logger = GenericLogger("mcp", "recipe_history_server", initialize_logging=False)
-
-
-def get_authenticated_client(user_id: str) -> Client:
-    """認証済みのSupabaseクライアントを取得"""
-    supabase_url = os.getenv('SUPABASE_URL')
-    supabase_key = os.getenv('SUPABASE_KEY')
-    
-    if not all([supabase_url, supabase_key]):
-        raise ValueError("SUPABASE_URL and SUPABASE_KEY are required")
-    
-    client = create_client(supabase_url, supabase_key)
-    # 注意: 実際の認証はAPI層で完了済み、user_idでユーザー識別
-    return client
 
 
 # 基本CRUD操作
