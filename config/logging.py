@@ -13,6 +13,33 @@ from pathlib import Path
 from typing import Optional
 
 
+class AlignedFormatter(logging.Formatter):
+    """Custom formatter that aligns logger names and log levels"""
+    
+    def __init__(self, fmt=None, datefmt=None):
+        super().__init__(fmt, datefmt)
+        self.logger_name_width = 30  # Fixed width for logger names
+        self.level_name_width = 5    # Fixed width for log levels
+    
+    def format(self, record):
+        # Format logger name with padding/truncation
+        logger_name = record.name
+        if len(logger_name) > self.logger_name_width:
+            logger_name = logger_name[:self.logger_name_width]
+        else:
+            logger_name = logger_name.ljust(self.logger_name_width)
+        
+        # Format level name with padding
+        level_name = record.levelname.ljust(self.level_name_width)
+        
+        # Create aligned format
+        aligned_format = f'%(asctime)s - {logger_name} - {level_name} - %(message)s'
+        
+        # Create temporary formatter with aligned format
+        temp_formatter = logging.Formatter(aligned_format, self.datefmt)
+        return temp_formatter.format(record)
+
+
 class LoggingConfig:
     """Centralized logging configuration for Morizo AI v2"""
     
@@ -68,8 +95,8 @@ class LoggingConfig:
             )
             file_handler.setLevel(logging.INFO)
             
-            # Set formatter
-            formatter = logging.Formatter(
+            # Set aligned formatter
+            formatter = AlignedFormatter(
                 fmt=self.log_format,
                 datefmt=self.date_format
             )
@@ -87,8 +114,8 @@ class LoggingConfig:
             console_handler = logging.StreamHandler()
             console_handler.setLevel(logging.INFO)
             
-            # Set formatter
-            formatter = logging.Formatter(
+            # Set aligned formatter
+            formatter = AlignedFormatter(
                 fmt=self.log_format,
                 datefmt=self.date_format
             )

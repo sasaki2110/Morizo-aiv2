@@ -5,7 +5,7 @@ This module provides common utilities for testing, including authentication help
 """
 
 import os
-from typing import Optional
+from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
@@ -54,19 +54,22 @@ class AuthUtil:
         except Exception as e:
             raise ValueError(f"Authentication failed: {e}")
     
-    def verify_auth_token(self, token: str) -> bool:
-        """認証トークンを検証"""
+    def verify_auth_token(self, token: str) -> Optional[Dict[str, Any]]:
+        """認証トークンを検証し、ユーザー情報を返す"""
         try:
             client = self.get_supabase_client()
-            user = client.auth.get_user(token)
-            return user is not None
+            user_response = client.auth.get_user(token)
+            if user_response and user_response.user:
+                return user_response.user.model_dump()
+            return None
         except:
-            return False
+            return None
     
     def get_authenticated_client(self, token: str) -> Client:
         """認証済みのSupabaseクライアントを取得"""
         client = self.get_supabase_client()
-        client.auth.set_session(token)
+        # トークンでセッションを設定（refresh_tokenは空文字列でOK）
+        client.auth.set_session(token, "")
         return client
 
 
