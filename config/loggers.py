@@ -16,16 +16,23 @@ from .logging import get_logger
 class GenericLogger:
     """Simple generic logger for all application layers"""
     
-    def __init__(self, layer: str, component: str = ""):
+    def __init__(self, layer: str, component: str = "", initialize_logging: bool = False):
         """
         Initialize generic logger
         
         Args:
             layer: Layer name (api, service, mcp, core)
             component: Component name (optional)
+            initialize_logging: Whether to initialize logging system (default: False for MCP servers)
         """
         self.layer = layer
         self.component = component
+        
+        # Initialize logging system only if requested
+        if initialize_logging:
+            from .logging import setup_logging
+            setup_logging(initialize=True)
+        
         self.logger = get_logger(f'{layer}.{component}' if component else layer)
     
     def info(self, message: str) -> None:

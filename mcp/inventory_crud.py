@@ -15,7 +15,7 @@ class InventoryCRUD:
     """在庫管理の基本CRUD操作"""
     
     def __init__(self):
-        self.logger = GenericLogger("mcp", "inventory_crud")
+        self.logger = GenericLogger("mcp", "inventory_crud", initialize_logging=False)
     
     async def add_item(
         self, 

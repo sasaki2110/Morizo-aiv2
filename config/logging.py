@@ -51,12 +51,13 @@ class LoggingConfig:
         self.log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         self.date_format = '%Y-%m-%d %H:%M:%S'
         
-    def setup_logging(self, log_level: str = "INFO") -> logging.Logger:
+    def setup_logging(self, log_level: str = "INFO", initialize: bool = True) -> logging.Logger:
         """
         Setup centralized logging configuration
         
         Args:
             log_level: Logging level (DEBUG, INFO, WARNING, ERROR)
+            initialize: Whether to initialize (create backup) log files
             
         Returns:
             Configured root logger
@@ -69,7 +70,7 @@ class LoggingConfig:
         root_logger.handlers.clear()
         
         # Setup file handler with rotation
-        self._setup_file_handler(root_logger)
+        self._setup_file_handler(root_logger, initialize)
         
         # Setup console handler for development
         self._setup_console_handler(root_logger)
@@ -80,11 +81,12 @@ class LoggingConfig:
         root_logger.info("🔧 [LOGGING] ロギング設定が完了しました")
         return root_logger
     
-    def _setup_file_handler(self, logger: logging.Logger) -> None:
+    def _setup_file_handler(self, logger: logging.Logger, initialize: bool = True) -> None:
         """Setup file handler with rotation"""
         try:
-            # Create backup if log file exists
-            self._create_log_backup()
+            # Create backup if log file exists and initialization is requested
+            if initialize:
+                self._create_log_backup()
             
             # Create rotating file handler
             file_handler = logging.handlers.RotatingFileHandler(
@@ -137,18 +139,19 @@ class LoggingConfig:
                 print(f"⚠️ [LOGGING] バックアップ作成エラー: {e}")
 
 
-def setup_logging(log_level: str = "INFO") -> logging.Logger:
+def setup_logging(log_level: str = "INFO", initialize: bool = True) -> logging.Logger:
     """
     Convenience function to setup logging configuration
     
     Args:
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR)
+        initialize: Whether to initialize (create backup) log files
         
     Returns:
         Configured root logger
     """
     config = LoggingConfig()
-    return config.setup_logging(log_level)
+    return config.setup_logging(log_level, initialize)
 
 
 def get_logger(name: str) -> logging.Logger:

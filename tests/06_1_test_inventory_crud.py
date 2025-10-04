@@ -24,8 +24,8 @@ from config.logging import setup_logging
 
 async def test_inventory_crud():
     """Test basic CRUD operations"""
-    # ロギング設定
-    setup_logging()
+    # ロギング設定（初期化なし）
+    setup_logging(initialize=False)
     logger = GenericLogger("test", "inventory_crud")
     
     logger.info("🧪 [TEST] Testing Inventory CRUD operations...")
@@ -140,8 +140,8 @@ async def test_inventory_crud():
 if __name__ == "__main__":
     import asyncio
     
-    # ロギング設定
-    setup_logging()
+    # テスト開始時に一度だけログ初期化（ローテーション）
+    setup_logging(initialize=True)  # テスト開始時のみ初期化
     logger = GenericLogger("test", "main")
     
     logger.info("🚀 [TEST] Starting Inventory CRUD Tests")

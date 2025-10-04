@@ -23,7 +23,7 @@ mcp = mcp.MCPServer("inventory-mcp")
 # 処理クラスのインスタンス
 crud = InventoryCRUD()
 advanced = InventoryAdvanced()
-logger = GenericLogger("mcp", "inventory_server")
+logger = GenericLogger("mcp", "inventory_server", initialize_logging=False)
 
 
 def get_authenticated_client(user_id: str) -> Client:

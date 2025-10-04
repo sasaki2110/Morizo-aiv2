@@ -14,7 +14,7 @@ class InventoryAdvanced:
     """在庫管理の高度な操作"""
     
     def __init__(self):
-        self.logger = GenericLogger("mcp", "inventory_advanced")
+        self.logger = GenericLogger("mcp", "inventory_advanced", initialize_logging=False)
     
     async def update_by_name(
         self, 
