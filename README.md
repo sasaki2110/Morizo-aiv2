@@ -37,6 +37,10 @@ uvicorn main:app --reload --port 8000
 curl http://localhost:8000/health
 ```
 
+## テスト  
+tests/03_1_test_logging.py 等
+フェーズ番号_連番_test_テスト項目.py で命名
+
 ## 🔐 認証
 
 ### 認証方式
