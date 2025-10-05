@@ -50,7 +50,7 @@ class RecipeRAGClient:
         limit: int = 5
     ) -> List[Dict[str, Any]]:
         """
-        在庫食材に基づく類似レシピ検索
+        在庫食材に基づく類似レシピ検索（部分マッチング機能付き）
         
         Args:
             ingredients: 在庫食材リスト
@@ -62,28 +62,28 @@ class RecipeRAGClient:
             検索結果のリスト
         """
         try:
-            # 検索クエリを作成
-            query = f"{' '.join(ingredients)} {menu_type}"
+            # 部分マッチング機能を使用
+            results = await self.search_recipes_by_partial_match(
+                ingredients=ingredients,
+                menu_type=menu_type,
+                excluded_recipes=excluded_recipes,
+                limit=limit,
+                min_match_score=0.05  # 低い閾値で幅広く検索
+            )
             
-            # ベクトルストアを取得
-            vectorstore = self._get_vectorstore()
+            # 既存のAPIとの互換性のため、不要なフィールドを削除
+            formatted_results = []
+            for result in results:
+                formatted_result = {
+                    "title": result["title"],
+                    "category": result["category"],
+                    "main_ingredients": result["main_ingredients"],
+                    "original_index": result["original_index"],
+                    "content": result["content"]
+                }
+                formatted_results.append(formatted_result)
             
-            # 類似検索を実行
-            results = vectorstore.similarity_search(query, k=limit * 2)  # 除外処理のため多めに取得
-            
-            # 除外レシピをフィルタリング
-            if excluded_recipes:
-                filtered_results = []
-                for result in results:
-                    title = result.metadata.get('title', '')
-                    if not any(excluded in title for excluded in excluded_recipes):
-                        filtered_results.append(result)
-                results = filtered_results[:limit]
-            else:
-                results = results[:limit]
-            
-            # 結果を整形
-            return self._format_search_results(results, limit)
+            return formatted_results
             
         except Exception as e:
             logger.error(f"類似レシピ検索エラー: {e}")
@@ -177,3 +177,150 @@ class RecipeRAGClient:
             return parts[0].strip()
         
         return ""
+    
+    def _calculate_partial_match_score(self, recipe_ingredients: str, inventory_items: List[str]) -> float:
+        """
+        レシピの食材と在庫食材の部分マッチングスコアを計算
+        
+        Args:
+            recipe_ingredients: レシピの食材文字列
+            inventory_items: 在庫食材リスト
+        
+        Returns:
+            マッチングスコア (0.0 - 1.0)
+        """
+        if not recipe_ingredients or not inventory_items:
+            return 0.0
+        
+        # レシピの食材を単語に分割
+        recipe_words = recipe_ingredients.split()
+        
+        # マッチした食材数
+        matched_count = 0
+        total_inventory = len(inventory_items)
+        
+        for inventory_item in inventory_items:
+            # 完全マッチ
+            if inventory_item in recipe_words:
+                matched_count += 1
+            else:
+                # 部分マッチ（在庫食材がレシピ食材に含まれる）
+                for word in recipe_words:
+                    if inventory_item in word or word in inventory_item:
+                        matched_count += 0.5
+                        break
+        
+        # スコア計算: マッチした食材数 / 在庫食材数
+        return matched_count / total_inventory if total_inventory > 0 else 0.0
+    
+    def _get_matched_ingredients(self, recipe_ingredients: str, inventory_items: List[str]) -> List[str]:
+        """
+        レシピで使用可能な在庫食材を取得
+        
+        Args:
+            recipe_ingredients: レシピの食材文字列
+            inventory_items: 在庫食材リスト
+        
+        Returns:
+            マッチした在庫食材のリスト
+        """
+        if not recipe_ingredients or not inventory_items:
+            return []
+        
+        recipe_words = recipe_ingredients.split()
+        matched = []
+        
+        for inventory_item in inventory_items:
+            # 完全マッチ
+            if inventory_item in recipe_words:
+                matched.append(inventory_item)
+            else:
+                # 部分マッチ
+                for word in recipe_words:
+                    if inventory_item in word or word in inventory_item:
+                        matched.append(inventory_item)
+                        break
+        
+        return matched
+    
+    async def search_recipes_by_partial_match(
+        self,
+        ingredients: List[str],
+        menu_type: str = "和食",
+        excluded_recipes: List[str] = None,
+        limit: int = 5,
+        min_match_score: float = 0.1
+    ) -> List[Dict[str, Any]]:
+        """
+        在庫食材の部分マッチングでレシピを検索
+        
+        Args:
+            ingredients: 在庫食材リスト
+            menu_type: メニュータイプ
+            excluded_recipes: 除外するレシピタイトル
+            limit: 検索結果の最大件数
+            min_match_score: 最小マッチングスコア
+        
+        Returns:
+            検索結果のリスト（マッチングスコア付き）
+        """
+        try:
+            # ベクトルストアを取得
+            vectorstore = self._get_vectorstore()
+            
+            # より多くの結果を取得して部分マッチングでフィルタリング
+            query = f"{' '.join(ingredients)} {menu_type}"
+            results = vectorstore.similarity_search(query, k=limit * 4)  # 多めに取得
+            
+            # 部分マッチングでフィルタリングとスコアリング
+            scored_results = []
+            
+            for result in results:
+                try:
+                    metadata = result.metadata
+                    content = result.page_content
+                    
+                    # タイトルを取得
+                    title = metadata.get('title', '')
+                    if not title:
+                        title = self._extract_title_from_content(content)
+                    
+                    # 除外レシピチェック
+                    if excluded_recipes and any(excluded in title for excluded in excluded_recipes):
+                        continue
+                    
+                    # レシピの食材部分を抽出
+                    parts = content.split(' | ')
+                    recipe_ingredients = parts[1] if len(parts) > 1 else ""
+                    
+                    # 部分マッチングスコアを計算
+                    match_score = self._calculate_partial_match_score(recipe_ingredients, ingredients)
+                    
+                    # 最小スコア以上のレシピのみを追加
+                    if match_score >= min_match_score:
+                        matched_ingredients = self._get_matched_ingredients(recipe_ingredients, ingredients)
+                        
+                        formatted_result = {
+                            "title": title,
+                            "category": metadata.get('recipe_category', ''),
+                            "main_ingredients": metadata.get('main_ingredients', ''),
+                            "original_index": metadata.get('original_index', 0),
+                            "content": content,
+                            "match_score": match_score,
+                            "matched_ingredients": matched_ingredients,
+                            "recipe_ingredients": recipe_ingredients
+                        }
+                        scored_results.append(formatted_result)
+                        
+                except Exception as e:
+                    logger.warning(f"結果処理エラー: {e}")
+                    continue
+            
+            # マッチングスコア順にソート
+            scored_results.sort(key=lambda x: x['match_score'], reverse=True)
+            
+            return scored_results[:limit]
+            
+        except Exception as e:
+            logger.error(f"部分マッチング検索エラー: {e}")
+            raise
