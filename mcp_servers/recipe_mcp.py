@@ -375,7 +375,6 @@ class RecipeMCP:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-
 if __name__ == "__main__":
     logger.info("🚀 Starting Recipe MCP Server")
     mcp.run()

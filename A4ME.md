@@ -19,12 +19,6 @@ AIが暴走列車で、がーーーーっと作ると、とりあえず動くけ
 必ず地雷が埋め込まれてる。。。
 を発見できるか？？？？
 
-
-
-そして、とりあえず
-06_1_1_test_inventory_add.py の結合レベルテストが成功したから、
-06_1_1_test_inventory_list.py　の結合レベルテストくらいを試す。
-
 そして、recipe_mcp の　
 LLM推論の　結合レベルテスト
 WEB検索の　結合レベルテスト
@@ -34,5 +28,17 @@ WEB検索の　結合レベルテスト
 
 が、最低の次の目標やね。
 
+後、
+    7 mcp_servers/__init__.py
+  132 mcp_servers/client.py
+  222 mcp_servers/inventory_advanced.py
+  164 mcp_servers/inventory_crud.py
+  292 mcp_servers/inventory_mcp.py　　　　　＜－ダイエット候補
+  143 mcp_servers/recipe_history_crud.py
+  209 mcp_servers/recipe_history_mcp.py
+  182 mcp_servers/recipe_llm.py
+  381 mcp_servers/recipe_mcp.py　　　　   　＜－ダイエット候補
+  129 mcp_servers/recipe_web.py
+   42 mcp_servers/utils.py
 
 

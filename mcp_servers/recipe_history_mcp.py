@@ -131,77 +131,7 @@ async def history_delete_by_id(
     return await crud.delete_history_by_id(client, user_id, history_id)
 
 
-class RecipeHistoryMCP:
-    """Recipe History MCPクラス（MCPClient用のラッパー）"""
-
-    def __init__(self):
-        self.crud = RecipeHistoryCRUD()
-        self.logger = GenericLogger("mcp", "recipe_history_mcp_class")
-
-    async def execute(self, tool_name: str, parameters: Dict[str, Any], token: str) -> Dict[str, Any]:
-        """MCPツールを実行"""
-        try:
-            # 認証済みクライアントを取得（トークン付き）
-            client = get_authenticated_client(parameters.get("user_id", ""), token)
-            
-            # ツール名に基づいて適切なメソッドを呼び出し
-            if tool_name == "history_add":
-                return await self._execute_history_add(client, parameters)
-            elif tool_name == "history_list":
-                return await self._execute_history_list(client, parameters)
-            elif tool_name == "history_get":
-                return await self._execute_history_get(client, parameters)
-            elif tool_name == "history_update_by_id":
-                return await self._execute_history_update_by_id(client, parameters)
-            elif tool_name == "history_delete_by_id":
-                return await self._execute_history_delete_by_id(client, parameters)
-            else:
-                raise ValueError(f"Unknown tool: {tool_name}")
-                
-        except Exception as e:
-            self.logger.error(f"❌ [RecipeHistoryMCP] Tool {tool_name} failed: {e}")
-            return {"success": False, "error": str(e)}
-
-    async def _execute_history_add(self, client: Client, parameters: Dict[str, Any]) -> Dict[str, Any]:
-        """レシピ履歴追加を実行"""
-        return await self.crud.add_history(
-            client,
-            parameters["user_id"],
-            parameters["title"],
-            parameters["source"],
-            parameters.get("url")
-        )
-
-    async def _execute_history_list(self, client: Client, parameters: Dict[str, Any]) -> Dict[str, Any]:
-        """レシピ履歴一覧取得を実行"""
-        return await self.crud.get_all_histories(client, parameters["user_id"])
-
-    async def _execute_history_get(self, client: Client, parameters: Dict[str, Any]) -> Dict[str, Any]:
-        """レシピ履歴取得を実行"""
-        return await self.crud.get_history_by_id(
-            client,
-            parameters["user_id"],
-            parameters["history_id"]
-        )
-
-    async def _execute_history_update_by_id(self, client: Client, parameters: Dict[str, Any]) -> Dict[str, Any]:
-        """レシピ履歴更新を実行"""
-        return await self.crud.update_history_by_id(
-            client,
-            parameters["user_id"],
-            parameters["history_id"],
-            parameters.get("title"),
-            parameters.get("source"),
-            parameters.get("url")
-        )
-
-    async def _execute_history_delete_by_id(self, client: Client, parameters: Dict[str, Any]) -> Dict[str, Any]:
-        """レシピ履歴削除を実行"""
-        return await self.crud.delete_history_by_id(
-            client,
-            parameters["user_id"],
-            parameters["history_id"]
-        )
+# RecipeHistoryMCPクラスは削除（Phase 3のサービスレイヤ実装時に移動予定）
 
 
 if __name__ == "__main__":

@@ -2,6 +2,14 @@
 Morizo AI v2 - MCP Client
 
 This module provides the MCP client for tool communication with authentication.
+
+TODO: 05_SERVICE_LAYER.mdの設計思想に従って実装予定
+- ルーティング情報の一元管理
+- 統一インターフェースの提供
+- 処理の振り分け
+- FastMCPサーバーとの通信
+
+現在は疎通確認用のFastMCPクライアント（MCPClient4test）を使用
 """
 
 import os
@@ -16,99 +24,35 @@ load_dotenv()
 
 
 class MCPClient:
-    """MCPクライアント（認証機能付き）"""
+    """
+    MCPクライアント（認証機能付き）
+    
+    TODO: 05_SERVICE_LAYER.mdの設計思想に従って実装予定
+    - サービスロケータ/ルータとしての役割
+    - ルーティング情報の一元管理
+    - 統一インターフェースの提供
+    - 処理の振り分け
+    - FastMCPサーバーとの通信
+    
+    現在は疎通確認用のFastMCPクライアント（MCPClient4test）を使用
+    """
     
     def __init__(self):
-        self.supabase_url = os.getenv('SUPABASE_URL')
-        self.supabase_key = os.getenv('SUPABASE_KEY')
+        # 現在は疎通確認用のFastMCPクライアント（MCPClient4test）を使用
+        from mcp_servers.client4test import MCPClient4test
+        self.test_client = MCPClient4test()
         self.logger = GenericLogger("mcp", "client")
-        
-        if not all([self.supabase_url, self.supabase_key]):
-            raise ValueError("SUPABASE_URL and SUPABASE_KEY are required")
-        
-        self._client: Optional[Client] = None
-    
-    def get_supabase_client(self) -> Client:
-        """Supabaseクライアントを取得"""
-        if self._client is None:
-            self._client = create_client(self.supabase_url, self.supabase_key)
-        return self._client
-    
-    def verify_auth_token(self, token: str) -> bool:
-        """認証トークンを検証"""
-        try:
-            client = self.get_supabase_client()
-            user = client.auth.get_user(token)
-            is_valid = user is not None
-            self.logger.info(f"🔐 [MCP] Token verification: {'Valid' if is_valid else 'Invalid'}")
-            return is_valid
-        except Exception as e:
-            self.logger.error(f"❌ [MCP] Token verification failed: {e}")
-            return False
-    
-    def get_authenticated_client(self, token: str) -> Client:
-        """認証済みのSupabaseクライアントを取得"""
-        if not self.verify_auth_token(token):
-            raise ValueError("Invalid authentication token")
-        
-        client = self.get_supabase_client()
-        client.auth.set_session(token)
-        self.logger.info("🔐 [MCP] Authenticated client created")
-        return client
     
     async def call_tool(self, tool_name: str, parameters: Dict[str, Any], token: str) -> Dict[str, Any]:
-        """MCPツールを呼び出し"""
-        self.logger.info(f"🔧 [MCP] Calling tool: {tool_name}")
-        self.logger.debug(f"📝 [MCP] Parameters: {parameters}")
-        
-        try:
-            # 認証確認
-            if not self.verify_auth_token(token):
-                raise ValueError("Authentication failed")
-            
-            # ツール呼び出し（各MCPツールに委譲）
-            result = await self._execute_tool(tool_name, parameters, token)
-            
-            self.logger.info(f"✅ [MCP] Tool {tool_name} completed successfully")
-            self.logger.debug(f"📊 [MCP] Result: {result}")
-            
-            return {
-                "success": True,
-                "result": result,
-                "tool": tool_name
-            }
-            
-        except Exception as e:
-            self.logger.error(f"❌ [MCP] Tool {tool_name} failed: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "tool": tool_name
-            }
+        """統一インターフェースでツールを呼び出し"""
+        # 現在は疎通確認用のFastMCPクライアント（MCPClient4test）に委譲
+        return await self.test_client.call_tool(tool_name, parameters, token)
     
-    async def _execute_tool(self, tool_name: str, parameters: Dict[str, Any], token: str) -> Any:
-        """ツール実行の実装（各MCPツールに委譲）"""
-        # ツール名に基づいて適切なMCPツールを呼び出し
-        if tool_name.startswith("inventory_"):
-            from mcp_servers.inventory_mcp import InventoryMCP
-            mcp = InventoryMCP()
-            return await mcp.execute(tool_name, parameters, token)
-        
-        elif tool_name.startswith("recipe_history_"):
-            from mcp_servers.recipe_history_mcp import RecipeHistoryMCP
-            mcp = RecipeHistoryMCP()
-            return await mcp.execute(tool_name, parameters, token)
-        
-        elif tool_name.startswith("recipe_"):
-            from mcp_servers.recipe_mcp import RecipeMCP
-            mcp = RecipeMCP()
-            return await mcp.execute(tool_name, parameters, token)
-        
     def cleanup(self):
         """リソースのクリーンアップ"""
         self.logger.info("🔧 [MCP] MCPクライアントのクリーンアップ")
-        # 必要に応じてリソースのクリーンアップ処理を追加
-        pass
+        # FastMCPクライアント（MCPClient4test）のクリーンアップも実行
+        self.test_client.cleanup()
 
 
 # テスト実行
@@ -123,7 +67,7 @@ if __name__ == "__main__":
         test_token = "test_token"
         
         # 認証テスト
-        is_valid = client.verify_auth_token(test_token)
+        is_valid = client.test_client.verify_auth_token(test_token)
         print(f"🔐 Token verification: {'Valid' if is_valid else 'Invalid'}")
         
         print("🎉 MCP Client test completed!")
