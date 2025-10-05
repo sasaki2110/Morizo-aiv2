@@ -161,39 +161,38 @@ services/
 - [ ] レシピの生成・検索
 - [ ] サービス間連携
 
-## 🔌 Phase 4: MCP層実装
+## 🔧 Phase 4: コア機能実装
 
-### 目標
-- 疎結合なツール通信
-- 動的ツール選択
-- 単独動作保証
+### **目標**
+- 統一されたReActエージェントの基本実装
+- タスク分解・実行の基本機能
+- 依存関係解決の基本機能
 
-### 実装ファイル
+### **実装ファイル**
 ```
-mcp_servers/
+core/
 ├── __init__.py
-├── client.py              # MCPClient (100行以下)
-├── recipe_mcp_servers.py          # RecipeMCP (100行以下)
-├── inventory_mcp_servers.py       # InventoryMCP (100行以下)
-└── recipe_history_mcp_servers.py  # RecipeHistoryMCP (100行以下)
+├── agent.py          # TrueReactAgent (150行以下)
+├── planner.py        # ActionPlanner (150行以下)
+└── executor.py       # TaskExecutor (150行以下)
 ```
 
-### 実装順序
-1. **InventoryMCP**: 基本的な在庫管理操作
-2. **RecipeHistoryMCP**: 基本的なレシピ履歴操作
-3. **RecipeMCP**: 基本的なレシピ機能
-4. **MCPClient**: ツール通信の統合
+### **実装順序**
+1. **TaskExecutor**: 基本的なタスク実行
+2. **ActionPlanner**: 基本的なタスク分解
+3. **TrueReactAgent**: 統一されたReActループ
 
 ### **成功基準**
-- [ ] 各ファイルが100行以下
-- [ ] データベース操作が動作
-- [ ] レシピ機能が動作
-- [ ] 疎結合通信が動作
+- [ ] 各ファイルが150行以下
+- [ ] 基本的なタスク実行が動作
+- [ ] 基本的なタスク分解が動作
+- [ ] 統一されたReActループが動作
 
 ### **テスト項目**
-- [ ] 在庫CRUD操作
-- [ ] レシピ生成・検索
-- [ ] ツール間通信
+- [ ] シンプルな挨拶の処理
+- [ ] 基本的なタスク分解
+- [ ] 基本的なタスク実行
+- [ ] エラーハンドリング
 
 ## 🌐 Phase 5: API層実装
 
