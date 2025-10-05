@@ -18,7 +18,7 @@ load_dotenv()
 logger = GenericLogger("mcp", "recipe_web", initialize_logging=False)
 
 
-class GoogleSearchClient:
+class _GoogleSearchClient:
     """Google Search APIを使用したレシピ検索クライアント"""
     
     def __init__(self):
@@ -126,4 +126,4 @@ def filter_recipe_results(recipes: List[Dict]) -> List[Dict]:
 
 
 # グローバルインスタンス
-search_client = GoogleSearchClient()
+search_client = _GoogleSearchClient()

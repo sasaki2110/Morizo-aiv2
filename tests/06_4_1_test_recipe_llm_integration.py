@@ -90,26 +90,28 @@ async def test_generate_menu_plan_with_history_integration():
                 print(f"   ===================")
                 
                 # 主菜の表示
-                main_dish = data.get("main_dish", {})
+                main_dish = data.get("main_dish", "")
                 if main_dish:
-                    print(f"   🍖 主菜: {main_dish.get('title', 'N/A')}")
-                    ingredients = main_dish.get('ingredients', [])
+                    print(f"   🍖 主菜: {main_dish}")
+                    ingredients = data.get("ingredients_used", [])
                     if ingredients:
                         print(f"      材料: {', '.join(ingredients)}")
                 
                 # 副菜の表示
-                side_dish = data.get("side_dish", {})
+                side_dish = data.get("side_dish", "")
                 if side_dish:
-                    print(f"   🥗 副菜: {side_dish.get('title', 'N/A')}")
-                    ingredients = side_dish.get('ingredients', [])
+                    print(f"   🥗 副菜: {side_dish}")
+                    # 副菜の材料はingredients_usedから取得（主菜と共有）
+                    ingredients = data.get("ingredients_used", [])
                     if ingredients:
                         print(f"      材料: {', '.join(ingredients)}")
                 
                 # 汁物の表示
-                soup = data.get("soup", {})
+                soup = data.get("soup", "")
                 if soup:
-                    print(f"   🍲 汁物: {soup.get('title', 'N/A')}")
-                    ingredients = soup.get('ingredients', [])
+                    print(f"   🍲 汁物: {soup}")
+                    # 汁物の材料はingredients_usedから取得（主菜と共有）
+                    ingredients = data.get("ingredients_used", [])
                     if ingredients:
                         print(f"      材料: {', '.join(ingredients)}")
                 
@@ -215,19 +217,19 @@ async def test_generate_menu_plan_with_different_menu_types():
                     print(f"   ✅ {menu_type}献立生成成功:")
                     
                     # 主菜の表示
-                    main_dish = data.get("main_dish", {})
+                    main_dish = data.get("main_dish", "")
                     if main_dish:
-                        print(f"      主菜: {main_dish.get('title', 'N/A')}")
+                        print(f"      主菜: {main_dish}")
                     
                     # 副菜の表示
-                    side_dish = data.get("side_dish", {})
+                    side_dish = data.get("side_dish", "")
                     if side_dish:
-                        print(f"      副菜: {side_dish.get('title', 'N/A')}")
+                        print(f"      副菜: {side_dish}")
                     
                     # 汁物の表示
-                    soup = data.get("soup", {})
+                    soup = data.get("soup", "")
                     if soup:
-                        print(f"      汁物: {soup.get('title', 'N/A')}")
+                        print(f"      汁物: {soup}")
                     
                     logger.info(f"✅ [TEST] {menu_type} menu generation successful")
                 else:
@@ -296,19 +298,19 @@ async def test_generate_menu_plan_with_minimal_inventory():
                 print(f"   ✅ 最小在庫での献立生成成功:")
                 
                 # 主菜の表示
-                main_dish = data.get("main_dish", {})
+                main_dish = data.get("main_dish", "")
                 if main_dish:
-                    print(f"      主菜: {main_dish.get('title', 'N/A')}")
+                    print(f"      主菜: {main_dish}")
                 
                 # 副菜の表示
-                side_dish = data.get("side_dish", {})
+                side_dish = data.get("side_dish", "")
                 if side_dish:
-                    print(f"      副菜: {side_dish.get('title', 'N/A')}")
+                    print(f"      副菜: {side_dish}")
                 
                 # 汁物の表示
-                soup = data.get("soup", {})
+                soup = data.get("soup", "")
                 if soup:
-                    print(f"      汁物: {soup.get('title', 'N/A')}")
+                    print(f"      汁物: {soup}")
                 
                 # フォールバック使用の確認
                 fallback_used = data.get("fallback_used", False)

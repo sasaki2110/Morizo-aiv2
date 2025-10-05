@@ -16,7 +16,7 @@ test_util = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(test_util)
 
 # モジュールのインポート
-sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), "mcp"))
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), "mcp_servers"))
 from inventory_crud import InventoryCRUD
 from config.loggers import GenericLogger
 from config.logging import setup_logging

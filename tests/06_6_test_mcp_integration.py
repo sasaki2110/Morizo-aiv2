@@ -23,13 +23,14 @@ from config.logging import setup_logging
 setup_logging()
 
 from config.loggers import GenericLogger
+from mcp_servers.client import MCPClient
 
 # ロガーの初期化
 logger = GenericLogger("test", "mcp_integration")
 
 
 async def get_test_user_id():
-    """テスト用のユーザーIDを取得"""
+    """テスト用のユーザーIDと認証トークンを取得"""
     try:
         import importlib.util
         spec = importlib.util.spec_from_file_location("test_util", os.path.join(project_root, "tests", "00_1_test_util.py"))
@@ -46,14 +47,14 @@ async def get_test_user_id():
             user_id = user_info.get('id')
             print(f"✅ [統合テスト] ユーザーID取得成功: {user_id}")
             logger.info(f"✅ [統合テスト] ユーザーID取得成功: {user_id}")
-            return user_id
+            return user_id, token
         else:
             raise ValueError("Failed to verify auth token")
             
     except Exception as e:
         print(f"❌ [統合テスト] ユーザーID取得エラー: {e}")
         logger.error(f"❌ [統合テスト] ユーザーID取得エラー: {e}")
-        return None
+        return None, None
 
 
 async def test_inventory_list():
@@ -62,34 +63,47 @@ async def test_inventory_list():
     logger.info("📦 [統合テスト] 在庫一覧を取得中...")
     
     try:
-        # テスト用のユーザーIDを取得
-        test_user_id = await get_test_user_id()
-        if not test_user_id:
+        # テスト用のユーザーIDと認証トークンを取得
+        test_user_id, token = await get_test_user_id()
+        if not test_user_id or not token:
             return []
         
-        # 直接CRUDクラスを使用
-        from mcp_servers.inventory_crud import InventoryCRUD
-        from mcp_servers.utils import get_authenticated_client
-        crud = InventoryCRUD()
+        # MCPクライアントを作成
+        mcp_client = MCPClient()
         
-        client = get_authenticated_client(test_user_id)
-        result = await crud.get_all_items(client, test_user_id)
-        
-        if result.get("success"):
-            inventory_items = result.get("data", [])
-            print(f"✅ [統合テスト] 在庫一覧取得成功: {len(inventory_items)}件")
-            logger.info(f"✅ [統合テスト] 在庫一覧取得成功: {len(inventory_items)}件")
+        try:
+            # MCPツールを呼び出し
+            result = await mcp_client.call_tool(
+                tool_name="inventory_list",
+                parameters={"user_id": test_user_id},
+                token=token
+            )
             
-            # 在庫アイテムの表示
-            for i, item in enumerate(inventory_items, 1):
-                print(f"  {i}. {item.get('item_name', 'N/A')} - {item.get('quantity', 0)}{item.get('unit', '')}")
-                logger.info(f"📋 [統合テスト] 在庫アイテム {i}: {item.get('item_name', 'N/A')} - {item.get('quantity', 0)}{item.get('unit', '')}")
-            
-            return inventory_items
-        else:
-            print(f"❌ [統合テスト] 在庫一覧取得失敗: {result.get('error', 'Unknown error')}")
-            logger.error(f"❌ [統合テスト] 在庫一覧取得失敗: {result.get('error', 'Unknown error')}")
-            return []
+            if result.get("success"):
+                tool_result = result.get("result", {})
+                if tool_result.get("success"):
+                    inventory_items = tool_result.get("data", [])
+                    print(f"✅ [統合テスト] 在庫一覧取得成功: {len(inventory_items)}件")
+                    logger.info(f"✅ [統合テスト] 在庫一覧取得成功: {len(inventory_items)}件")
+                    
+                    # 在庫アイテムの表示
+                    for i, item in enumerate(inventory_items, 1):
+                        print(f"  {i}. {item.get('item_name', 'N/A')} - {item.get('quantity', 0)}{item.get('unit', '')}")
+                        logger.info(f"📋 [統合テスト] 在庫アイテム {i}: {item.get('item_name', 'N/A')} - {item.get('quantity', 0)}{item.get('unit', '')}")
+                    
+                    return inventory_items
+                else:
+                    print(f"❌ [統合テスト] 在庫一覧取得失敗: {tool_result.get('error', 'Unknown error')}")
+                    logger.error(f"❌ [統合テスト] 在庫一覧取得失敗: {tool_result.get('error', 'Unknown error')}")
+                    return []
+            else:
+                print(f"❌ [統合テスト] MCP呼び出し失敗: {result.get('error', 'Unknown error')}")
+                logger.error(f"❌ [統合テスト] MCP呼び出し失敗: {result.get('error', 'Unknown error')}")
+                return []
+                
+        finally:
+            # リソースのクリーンアップ
+            mcp_client.cleanup()
             
     except Exception as e:
         print(f"❌ [統合テスト] 在庫一覧取得エラー: {e}")
@@ -103,51 +117,66 @@ async def test_menu_generation(inventory_items):
     logger.info("🍽️ [統合テスト] 献立生成中...")
     
     try:
-        # テスト用のユーザーIDを取得
-        test_user_id = await get_test_user_id()
-        if not test_user_id:
+        # テスト用のユーザーIDと認証トークンを取得
+        test_user_id, token = await get_test_user_id()
+        if not test_user_id or not token:
             return {}
         
         # 在庫アイテム名のリストを作成
         item_names = [item.get('item_name', '') for item in inventory_items if item.get('item_name')]
         
-        # 直接LLMクライアントを使用
-        from mcp_servers.recipe_llm import RecipeLLM
-        llm_client = RecipeLLM()
+        # MCPクライアントを作成
+        mcp_client = MCPClient()
         
-        result = await llm_client.generate_menu_titles(
-            inventory_items=item_names,
-            menu_type="和食",
-            excluded_recipes=[]
-        )
-        
-        if result.get("success"):
-            menu_data = result.get("data", {})
-            print(f"✅ [統合テスト] 献立生成成功")
-            logger.info(f"✅ [統合テスト] 献立生成成功")
+        try:
+            # MCPツールを呼び出し
+            result = await mcp_client.call_tool(
+                tool_name="generate_menu_plan_with_history",
+                parameters={
+                    "inventory_items": item_names,
+                    "user_id": test_user_id,
+                    "menu_type": "和食"
+                },
+                token=token
+            )
             
-            # 献立の表示
-            main_dish = menu_data.get("main_dish", "")
-            side_dish = menu_data.get("side_dish", "")
-            soup = menu_data.get("soup", "")
-            
-            print(f"  【主菜】{main_dish}")
-            print(f"  【副菜】{side_dish}")
-            print(f"  【汁物】{soup}")
-            
-            logger.info(f"📋 [統合テスト] 主菜: {main_dish}")
-            logger.info(f"📋 [統合テスト] 副菜: {side_dish}")
-            logger.info(f"📋 [統合テスト] 汁物: {soup}")
-            
-            return {
-                "main_dish": main_dish,
-                "side_dish": side_dish,
-                "soup": soup
-            }
-        else:
-            print(f"❌ [統合テスト] 献立生成失敗: {result.get('error', 'Unknown error')}")
-            logger.error(f"❌ [統合テスト] 献立生成失敗: {result.get('error', 'Unknown error')}")
-            return {}
+            if result.get("success"):
+                tool_result = result.get("result", {})
+                if tool_result.get("success"):
+                    menu_data = tool_result.get("data", {})
+                    print(f"✅ [統合テスト] 献立生成成功")
+                    logger.info(f"✅ [統合テスト] 献立生成成功")
+                    
+                    # 献立の表示
+                    main_dish = menu_data.get("main_dish", "")
+                    side_dish = menu_data.get("side_dish", "")
+                    soup = menu_data.get("soup", "")
+                    
+                    print(f"  【主菜】{main_dish}")
+                    print(f"  【副菜】{side_dish}")
+                    print(f"  【汁物】{soup}")
+                    
+                    logger.info(f"📋 [統合テスト] 主菜: {main_dish}")
+                    logger.info(f"📋 [統合テスト] 副菜: {side_dish}")
+                    logger.info(f"📋 [統合テスト] 汁物: {soup}")
+                    
+                    return {
+                        "main_dish": main_dish,
+                        "side_dish": side_dish,
+                        "soup": soup
+                    }
+                else:
+                    print(f"❌ [統合テスト] 献立生成失敗: {tool_result.get('error', 'Unknown error')}")
+                    logger.error(f"❌ [統合テスト] 献立生成失敗: {tool_result.get('error', 'Unknown error')}")
+                    return {}
+            else:
+                print(f"❌ [統合テスト] MCP呼び出し失敗: {result.get('error', 'Unknown error')}")
+                logger.error(f"❌ [統合テスト] MCP呼び出し失敗: {result.get('error', 'Unknown error')}")
+                return {}
+                
+        finally:
+            # リソースのクリーンアップ
+            mcp_client.cleanup()
             
     except Exception as e:
         print(f"❌ [統合テスト] 献立生成エラー: {e}")
@@ -161,6 +190,11 @@ async def test_recipe_search(menu_titles):
     logger.info("🌐 [統合テスト] レシピ検索中...")
     
     try:
+        # テスト用のユーザーIDと認証トークンを取得
+        test_user_id, token = await get_test_user_id()
+        if not test_user_id or not token:
+            return []
+        
         # 献立タイトルのリストを作成（空文字を除外）
         recipe_titles = [title for title in menu_titles.values() if title]
         
@@ -169,40 +203,63 @@ async def test_recipe_search(menu_titles):
             logger.warning("⚠️ [統合テスト] 検索するレシピタイトルがありません")
             return []
         
-        # 直接WebSearchClientを使用
-        from mcp_servers.recipe_web import GoogleSearchClient, prioritize_recipes, filter_recipe_results
-        search_client = GoogleSearchClient()
+        # MCPクライアントを作成
+        mcp_client = MCPClient()
         
-        all_recipes = []
-        
-        # 各タイトルに対して検索を実行
-        for title in recipe_titles:
-            recipes = await search_client.search_recipes(title, num_results=3)
+        try:
+            all_recipes = []
             
-            # レシピをフィルタリング・優先順位付け
-            filtered_recipes = filter_recipe_results(recipes)
-            prioritized_recipes = prioritize_recipes(filtered_recipes)
+            # 各タイトルに対して検索を実行
+            for title in recipe_titles:
+                print(f"  🔍 Searching for: {title}")
+                logger.info(f"🔍 [統合テスト] Searching for recipe: {title}")
+                
+                # MCPツールを呼び出し
+                result = await mcp_client.call_tool(
+                    tool_name="search_recipe_from_web",
+                    parameters={
+                        "recipe_title": title,
+                        "num_results": 3
+                    },
+                    token=token
+                )
+                
+                if result.get("success"):
+                    tool_result = result.get("result", {})
+                    if tool_result.get("success"):
+                        data = tool_result.get("data", [])
+                        
+                        print(f"  ✅ Found {len(data)} recipes for '{title}':")
+                        print(f"  {'='*50}")
+                        
+                        for i, recipe in enumerate(data, 1):
+                            print(f"  【レシピ {i}】")
+                            print(f"  📝 タイトル: {recipe.get('title', 'N/A')}")
+                            print(f"  🔗 URL: {recipe.get('url', 'N/A')}")
+                            print(f"  📍 ソース: {recipe.get('source', 'N/A')}")
+                            print(f"  {'-'*30}")
+                        
+                        # ログにも整形して出力
+                        logger.info(f"✅ [統合テスト] Retrieved {len(data)} recipes for '{title}':")
+                        for i, recipe in enumerate(data, 1):
+                            logger.info(f"   Recipe {i}: {recipe.get('title', 'N/A')} - {recipe.get('url', 'N/A')}")
+                        
+                        all_recipes.extend(data)
+                    else:
+                        print(f"  ❌ Search failed for '{title}': {tool_result.get('error', 'Unknown error')}")
+                        logger.error(f"❌ [統合テスト] Search failed for '{title}': {tool_result.get('error', 'Unknown error')}")
+                else:
+                    print(f"  ❌ MCP call failed for '{title}': {result.get('error', 'Unknown error')}")
+                    logger.error(f"❌ [統合テスト] MCP call failed for '{title}': {result.get('error', 'Unknown error')}")
             
-            # タイトル情報を追加
-            for recipe in prioritized_recipes:
-                recipe['search_title'] = title
+            print(f"\n  📊 Total recipes found: {len(all_recipes)}")
+            logger.info(f"📊 [統合テスト] Total recipes found across all searches: {len(all_recipes)}")
             
-            all_recipes.extend(prioritized_recipes)
-        
-        print(f"✅ [統合テスト] レシピ検索成功: {len(all_recipes)}件")
-        logger.info(f"✅ [統合テスト] レシピ検索成功: {len(all_recipes)}件")
-        
-        # 検索結果の表示
-        for i, recipe in enumerate(all_recipes, 1):
-            print(f"\n{i}. {recipe.get('title', 'N/A')}")
-            print(f"   URL: {recipe.get('url', 'N/A')}")
-            print(f"   Site: {recipe.get('site', 'N/A')}")
-            print(f"   Source: {recipe.get('source', 'N/A')}")
-            print(f"   Search Title: {recipe.get('search_title', 'N/A')}")
+            return all_recipes
             
-            logger.info(f"📋 [統合テスト] レシピ {i}: {recipe.get('title', 'N/A')} from {recipe.get('source', 'N/A')}")
-        
-        return all_recipes
+        finally:
+            # リソースのクリーンアップ
+            mcp_client.cleanup()
         
     except Exception as e:
         print(f"❌ [統合テスト] レシピ検索エラー: {e}")

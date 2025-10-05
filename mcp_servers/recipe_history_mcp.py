@@ -28,6 +28,16 @@ mcp = FastMCP("Recipe History MCP Server")
 crud = RecipeHistoryCRUD()
 logger = GenericLogger("mcp", "recipe_history_server", initialize_logging=False)
 
+# 手動でログハンドラーを設定
+from config.logging import get_logger
+import logging
+
+# ルートロガーを取得してハンドラーを設定
+root_logger = logging.getLogger('morizo_ai')
+if not root_logger.handlers:
+    from config.logging import setup_logging
+    setup_logging(initialize=False)  # ローテーションなし
+
 
 # 基本CRUD操作
 @mcp.tool()
@@ -48,25 +58,51 @@ async def history_add(
         url: レシピのURL
     
     Returns:
-        保存されたレシピのID
+        Dict[str, Any]: 保存結果
     """
-    client = get_authenticated_client(user_id, token)
-    return await crud.add_history(client, user_id, title, source, url)
+    logger.info(f"🔧 [RECIPE_HISTORY] Starting history_add for user: {user_id}, title: {title}")
+    
+    try:
+        client = get_authenticated_client(user_id)
+        logger.info(f"🔐 [RECIPE_HISTORY] Authenticated client created for user: {user_id}")
+        
+        result = await crud.add_history(client, user_id, title, source, url)
+        logger.info(f"✅ [RECIPE_HISTORY] history_add completed successfully")
+        logger.debug(f"📊 [RECIPE_HISTORY] Add result: {result}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"❌ [RECIPE_HISTORY] Error in history_add: {e}")
+        return {"success": False, "error": str(e)}
 
 
 @mcp.tool()
-async def history_list(user_id: str, token: Optional[str] = None) -> Dict[str, Any]:
+async def history_list(user_id: str) -> Dict[str, Any]:
     """
-    レシピ履歴一覧を取得する
+    ユーザーのレシピ履歴を取得する
     
     Args:
         user_id: ユーザーID
     
     Returns:
-        レシピ履歴のリスト
+        Dict[str, Any]: レシピ履歴のリスト
     """
-    client = get_authenticated_client(user_id, token)
-    return await crud.get_all_histories(client, user_id)
+    logger.info(f"🔧 [RECIPE_HISTORY] Starting history_list for user: {user_id}")
+    
+    try:
+        client = get_authenticated_client(user_id)
+        logger.info(f"🔐 [RECIPE_HISTORY] Authenticated client created for user: {user_id}")
+        
+        result = await crud.list_history(client, user_id)
+        logger.info(f"✅ [RECIPE_HISTORY] history_list completed successfully")
+        logger.debug(f"📊 [RECIPE_HISTORY] List result: {result}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"❌ [RECIPE_HISTORY] Error in history_list: {e}")
+        return {"success": False, "error": str(e)}
 
 
 @mcp.tool()
@@ -91,8 +127,7 @@ async def history_update_by_id(
     history_id: str,
     title: Optional[str] = None,
     source: Optional[str] = None,
-    url: Optional[str] = None,
-    token: Optional[str] = None
+    url: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     レシピ履歴を更新する
@@ -100,23 +135,32 @@ async def history_update_by_id(
     Args:
         user_id: ユーザーID
         history_id: 履歴ID
-        title: レシピタイトル（オプション）
-        source: レシピの出典（オプション）
-        url: レシピのURL（オプション）
+        title: レシピタイトル
+        source: レシピの出典
+        url: レシピのURL
     
     Returns:
-        更新成功の可否
+        Dict[str, Any]: 更新結果
     """
-    client = get_authenticated_client(user_id, token)
-    return await crud.update_history_by_id(client, user_id, history_id, title, source, url)
+    logger.info(f"🔧 [RECIPE_HISTORY] Starting history_update_by_id for user: {user_id}, history_id: {history_id}")
+    
+    try:
+        client = get_authenticated_client(user_id)
+        logger.info(f"🔐 [RECIPE_HISTORY] Authenticated client created for user: {user_id}")
+        
+        result = await crud.update_history_by_id(client, user_id, history_id, title, source, url)
+        logger.info(f"✅ [RECIPE_HISTORY] history_update_by_id completed successfully")
+        logger.debug(f"📊 [RECIPE_HISTORY] Update by id result: {result}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"❌ [RECIPE_HISTORY] Error in history_update_by_id: {e}")
+        return {"success": False, "error": str(e)}
 
 
 @mcp.tool()
-async def history_delete_by_id(
-    user_id: str,
-    history_id: str,
-    token: Optional[str] = None
-) -> Dict[str, Any]:
+async def history_delete_by_id(user_id: str, history_id: str) -> Dict[str, Any]:
     """
     レシピ履歴を削除する
     
@@ -125,14 +169,23 @@ async def history_delete_by_id(
         history_id: 履歴ID
     
     Returns:
-        削除成功の可否
+        Dict[str, Any]: 削除結果
     """
-    client = get_authenticated_client(user_id, token)
-    return await crud.delete_history_by_id(client, user_id, history_id)
-
-
-# RecipeHistoryMCPクラスは削除（Phase 3のサービスレイヤ実装時に移動予定）
-
+    logger.info(f"🔧 [RECIPE_HISTORY] Starting history_delete_by_id for user: {user_id}, history_id: {history_id}")
+    
+    try:
+        client = get_authenticated_client(user_id)
+        logger.info(f"🔐 [RECIPE_HISTORY] Authenticated client created for user: {user_id}")
+        
+        result = await crud.delete_history_by_id(client, user_id, history_id)
+        logger.info(f"✅ [RECIPE_HISTORY] history_delete_by_id completed successfully")
+        logger.debug(f"📊 [RECIPE_HISTORY] Delete by id result: {result}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"❌ [RECIPE_HISTORY] Error in history_delete_by_id: {e}")
+        return {"success": False, "error": str(e)}
 
 if __name__ == "__main__":
     logger.info("🚀 Starting Recipe History MCP Server")
