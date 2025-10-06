@@ -54,6 +54,7 @@ class MCPClient:
             "generate_menu_plan_with_history": "recipe",
             "generate_menu_with_llm_constraints": "recipe",
             "get_recipe_history_for_user": "recipe",
+            "search_menu_from_rag_with_history": "recipe",
             "search_recipe_from_web": "recipe",
             "history_add": "recipe_history",
             "history_list": "recipe_history",

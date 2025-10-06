@@ -15,6 +15,7 @@ from supabase import create_client, Client
 from fastmcp import FastMCP
 
 from mcp_servers.recipe_llm import RecipeLLM
+from mcp_servers.recipe_rag import RecipeRAGClient
 from mcp_servers.recipe_web import search_client, prioritize_recipes, filter_recipe_results
 from mcp_servers.utils import get_authenticated_client
 from config.loggers import GenericLogger
@@ -27,6 +28,7 @@ mcp = FastMCP("Recipe MCP Server")
 
 # 処理クラスのインスタンス
 llm_client = RecipeLLM()
+rag_client = RecipeRAGClient()
 logger = GenericLogger("mcp", "recipe_server", initialize_logging=False)
 
 # 手動でログハンドラーを設定
@@ -141,6 +143,72 @@ async def generate_menu_plan_with_history(
         
     except Exception as e:
         logger.error(f"❌ [RECIPE] Error in generate_menu_plan_with_history: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+async def search_menu_from_rag_with_history(
+    inventory_items: List[str],
+    user_id: str,
+    menu_type: str = "和食",
+    excluded_recipes: List[str] = None,
+    token: str = None
+) -> Dict[str, Any]:
+    """
+    RAG検索による伝統的な献立タイトル生成
+    
+    Args:
+        inventory_items: 在庫食材リスト
+        user_id: ユーザーID
+        menu_type: 献立のタイプ
+        excluded_recipes: 除外するレシピタイトル
+    
+    Returns:
+        {
+            "candidates": [
+                {
+                    "main_dish": {"title": "牛乳と卵のフレンチトースト", "ingredients": ["牛乳", "卵", "パン"]},
+                    "side_dish": {"title": "ほうれん草の胡麻和え", "ingredients": ["ほうれん草", "胡麻"]},
+                    "soup": {"title": "白菜とハムのクリームスープ", "ingredients": ["白菜", "ハム", "牛乳"]}
+                }
+            ],
+            "selected": {
+                "main_dish": {"title": "牛乳と卵のフレンチトースト", "ingredients": ["牛乳", "卵", "パン"]},
+                "side_dish": {"title": "ほうれん草の胡麻和え", "ingredients": ["ほうれん草", "胡麻"]},
+                "soup": {"title": "白菜とハムのクリームスープ", "ingredients": ["白菜", "ハム", "牛乳"]}
+            }
+        }
+    """
+    logger.info(f"🔧 [RECIPE] Starting search_menu_from_rag_with_history for user: {user_id}, menu_type: {menu_type}")
+    
+    try:
+        # RAG検索を実行
+        rag_results = await rag_client.search_similar_recipes(
+            ingredients=inventory_items,
+            menu_type=menu_type,
+            excluded_recipes=excluded_recipes,
+            limit=10  # 多めに取得して献立構成に使用
+        )
+        
+        logger.info(f"🔍 [RECIPE] RAG search completed, found {len(rag_results)} recipes")
+        
+        # RAG検索結果を献立形式に変換
+        menu_result = await rag_client.convert_rag_results_to_menu_format(
+            rag_results=rag_results,
+            inventory_items=inventory_items,
+            menu_type=menu_type
+        )
+        
+        logger.info(f"✅ [RECIPE] search_menu_from_rag_with_history completed successfully")
+        logger.debug(f"📊 [RECIPE] RAG menu result: {menu_result}")
+        
+        return {
+            "success": True,
+            "data": menu_result
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ [RECIPE] Error in search_menu_from_rag_with_history: {e}")
         return {"success": False, "error": str(e)}
 
 

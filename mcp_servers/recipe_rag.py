@@ -324,3 +324,251 @@ class RecipeRAGClient:
         except Exception as e:
             logger.error(f"部分マッチング検索エラー: {e}")
             raise
+    
+    async def convert_rag_results_to_menu_format(
+        self,
+        rag_results: List[Dict[str, Any]],
+        inventory_items: List[str],
+        menu_type: str = "和食"
+    ) -> Dict[str, Any]:
+        """
+        RAG検索結果を献立形式（主菜・副菜・汁物）に変換
+        
+        Args:
+            rag_results: RAG検索結果のリスト
+            inventory_items: 在庫食材リスト
+            menu_type: 献立のタイプ
+        
+        Returns:
+            献立形式の辞書
+        """
+        try:
+            logger.info(f"🔄 [RAG] Converting {len(rag_results)} results to menu format")
+            
+            # レシピをカテゴリ別に分類
+            categorized_recipes = self._categorize_recipes(rag_results)
+            
+            # 各カテゴリから最適なレシピを選択
+            selected_menu = self._select_optimal_menu(
+                categorized_recipes, inventory_items, menu_type
+            )
+            
+            # 候補も生成（複数提案用）
+            candidates = self._generate_menu_candidates(
+                categorized_recipes, inventory_items, menu_type
+            )
+            
+            result = {
+                "candidates": candidates,
+                "selected": selected_menu
+            }
+            
+            logger.info(f"✅ [RAG] Menu format conversion completed")
+            logger.debug(f"📊 [RAG] Selected menu: {selected_menu}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"❌ [RAG] Menu format conversion error: {e}")
+            raise
+    
+    def _categorize_recipes(self, rag_results: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        レシピをカテゴリ別に分類
+        
+        Args:
+            rag_results: RAG検索結果
+        
+        Returns:
+            カテゴリ別に分類されたレシピ辞書
+        """
+        categorized = {
+            "main_dish": [],
+            "side_dish": [],
+            "soup": [],
+            "other": []
+        }
+        
+        for recipe in rag_results:
+            category = recipe.get("category", "").lower()
+            title = recipe.get("title", "").lower()
+            
+            # カテゴリベースの分類
+            if "主菜" in category or "メイン" in category:
+                categorized["main_dish"].append(recipe)
+            elif "副菜" in category or "サイド" in category:
+                categorized["side_dish"].append(recipe)
+            elif "汁物" in category or "スープ" in category or "味噌汁" in category:
+                categorized["soup"].append(recipe)
+            else:
+                # タイトルベースの分類（フォールバック）
+                if any(keyword in title for keyword in ["スープ", "味噌汁", "汁", "スープ"]):
+                    categorized["soup"].append(recipe)
+                elif any(keyword in title for keyword in ["サラダ", "和え物", "漬物", "副菜"]):
+                    categorized["side_dish"].append(recipe)
+                else:
+                    categorized["main_dish"].append(recipe)
+        
+        logger.info(f"📊 [RAG] Categorized recipes: main={len(categorized['main_dish'])}, "
+                   f"side={len(categorized['side_dish'])}, soup={len(categorized['soup'])}")
+        
+        return categorized
+    
+    def _select_optimal_menu(
+        self, 
+        categorized_recipes: Dict[str, List[Dict[str, Any]]], 
+        inventory_items: List[str],
+        menu_type: str
+    ) -> Dict[str, Any]:
+        """
+        各カテゴリから最適なレシピを選択して献立を構成
+        
+        Args:
+            categorized_recipes: カテゴリ別レシピ
+            inventory_items: 在庫食材リスト
+            menu_type: 献立タイプ
+        
+        Returns:
+            選択された献立
+        """
+        selected_menu = {
+            "main_dish": {"title": "", "ingredients": []},
+            "side_dish": {"title": "", "ingredients": []},
+            "soup": {"title": "", "ingredients": []}
+        }
+        
+        used_ingredients = set()
+        
+        # 各カテゴリから最適なレシピを選択
+        for category in ["main_dish", "side_dish", "soup"]:
+            recipes = categorized_recipes.get(category, [])
+            if recipes:
+                # 食材重複を避けながら最適なレシピを選択
+                best_recipe = self._select_best_recipe_without_overlap(
+                    recipes, inventory_items, used_ingredients
+                )
+                
+                if best_recipe:
+                    title = best_recipe.get("title", "")
+                    ingredients = self._extract_ingredients_from_recipe(best_recipe)
+                    
+                    selected_menu[category] = {
+                        "title": title,
+                        "ingredients": ingredients
+                    }
+                    
+                    # 使用済み食材を記録
+                    used_ingredients.update(ingredients)
+        
+        return selected_menu
+    
+    def _select_best_recipe_without_overlap(
+        self, 
+        recipes: List[Dict[str, Any]], 
+        inventory_items: List[str],
+        used_ingredients: set
+    ) -> Optional[Dict[str, Any]]:
+        """
+        食材重複を避けながら最適なレシピを選択
+        
+        Args:
+            recipes: レシピリスト
+            inventory_items: 在庫食材リスト
+            used_ingredients: 既に使用済みの食材セット
+        
+        Returns:
+            最適なレシピ
+        """
+        best_recipe = None
+        best_score = -1
+        
+        for recipe in recipes:
+            # レシピの食材を抽出
+            recipe_ingredients = self._extract_ingredients_from_recipe(recipe)
+            
+            # 重複スコアを計算（重複が少ないほど高スコア）
+            overlap_count = len(set(recipe_ingredients) & used_ingredients)
+            inventory_match_count = len(set(recipe_ingredients) & set(inventory_items))
+            
+            # スコア計算: 在庫マッチ数 - 重複数
+            score = inventory_match_count - overlap_count
+            
+            if score > best_score:
+                best_score = score
+                best_recipe = recipe
+        
+        return best_recipe
+    
+    def _extract_ingredients_from_recipe(self, recipe: Dict[str, Any]) -> List[str]:
+        """
+        レシピから食材リストを抽出
+        
+        Args:
+            recipe: レシピ辞書
+        
+        Returns:
+            食材リスト
+        """
+        ingredients = []
+        
+        # main_ingredientsフィールドから抽出
+        main_ingredients = recipe.get("main_ingredients", "")
+        if main_ingredients:
+            ingredients.extend(main_ingredients.split())
+        
+        # contentフィールドから抽出（フォールバック）
+        if not ingredients:
+            content = recipe.get("content", "")
+            parts = content.split(' | ')
+            if len(parts) > 1:
+                ingredients.extend(parts[1].split())
+        
+        return ingredients
+    
+    def _generate_menu_candidates(
+        self, 
+        categorized_recipes: Dict[str, List[Dict[str, Any]]], 
+        inventory_items: List[str],
+        menu_type: str
+    ) -> List[Dict[str, Any]]:
+        """
+        複数の献立候補を生成
+        
+        Args:
+            categorized_recipes: カテゴリ別レシピ
+            inventory_items: 在庫食材リスト
+            menu_type: 献立タイプ
+        
+        Returns:
+            献立候補のリスト
+        """
+        candidates = []
+        
+        # 最大3つの候補を生成
+        for i in range(min(3, len(categorized_recipes.get("main_dish", [])))):
+            candidate = {
+                "main_dish": {"title": "", "ingredients": []},
+                "side_dish": {"title": "", "ingredients": []},
+                "soup": {"title": "", "ingredients": []}
+            }
+            
+            used_ingredients = set()
+            
+            # 各カテゴリからレシピを選択
+            for category in ["main_dish", "side_dish", "soup"]:
+                recipes = categorized_recipes.get(category, [])
+                if recipes and i < len(recipes):
+                    recipe = recipes[i]
+                    title = recipe.get("title", "")
+                    ingredients = self._extract_ingredients_from_recipe(recipe)
+                    
+                    candidate[category] = {
+                        "title": title,
+                        "ingredients": ingredients
+                    }
+                    
+                    used_ingredients.update(ingredients)
+            
+            candidates.append(candidate)
+        
+        return candidates
