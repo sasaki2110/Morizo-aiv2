@@ -221,10 +221,9 @@ async def test_rag_menu_generation(inventory_items):
                     logger.info(f"✅ [統合テスト] RAG検索による献立生成成功")
                     
                     # 献立の表示
-                    selected_menu = menu_data.get("selected", {})
-                    main_dish = selected_menu.get("main_dish", {}).get("title", "")
-                    side_dish = selected_menu.get("side_dish", {}).get("title", "")
-                    soup = selected_menu.get("soup", {}).get("title", "")
+                    main_dish = menu_data.get("main_dish", "")
+                    side_dish = menu_data.get("side_dish", "")
+                    soup = menu_data.get("soup", "")
                     
                     print(f"  【主菜】{main_dish}")
                     print(f"  【副菜】{side_dish}")

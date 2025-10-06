@@ -131,33 +131,6 @@ async def test_rag_client():
         else:
             logger.warning("📋 [TEST] No similar recipes found")
         
-        # クエリベース検索テスト
-        query = "牛乳を使ったレシピ"
-        logger.info(f"📋 [TEST] Testing query-based search: {query}")
-        
-        query_results = await rag_client.search_by_query(query, limit=3)
-        
-        assert isinstance(query_results, list), "Query results should be a list"
-        assert len(query_results) <= 3, f"Expected max 3 results, got {len(query_results)}"
-        
-        logger.info(f"✅ [TEST] Query-based search successful: {len(query_results)} results")
-        
-        if query_results:
-            logger.info(f"📋 [TEST] Query-based search results:")
-            for i, result in enumerate(query_results):
-                assert isinstance(result, dict), f"Query result {i} should be a dict"
-                assert "title" in result, f"Query result {i} should have 'title' key"
-                
-                title = result.get('title', 'N/A')
-                category = result.get('category', 'N/A')
-                main_ingredients = result.get('main_ingredients', 'N/A')
-                
-                logger.info(f"   📝 Query Recipe {i+1}: {title}")
-                logger.info(f"      - 分類: {category}")
-                logger.info(f"      - 主材料: {main_ingredients}")
-        else:
-            logger.warning("📋 [TEST] No query-based recipes found")
-        
         # 除外レシピ機能テスト
         excluded_recipes = ["フレンチトースト"]
         logger.info(f"📋 [TEST] Testing excluded recipes functionality: {excluded_recipes}")

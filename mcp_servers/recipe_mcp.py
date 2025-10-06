@@ -42,43 +42,6 @@ if not root_logger.handlers:
     setup_logging(initialize=False)  # ローテーションなし
 
 
-# LLM推論ツール
-@mcp.tool()
-async def generate_menu_with_llm_constraints(
-    inventory_items: List[str],
-    user_id: str,
-    menu_type: str = "和食",
-    excluded_recipes: List[str] = None
-) -> Dict[str, Any]:
-    """
-    LLM推論による独創的な献立タイトル生成
-    
-    Args:
-        inventory_items: 在庫食材リスト
-        user_id: ユーザーID
-        menu_type: 献立のタイプ（和食・洋食・中華）
-        excluded_recipes: 除外するレシピタイトル
-    
-    Returns:
-        Dict[str, Any]: 生成された献立情報
-    """
-    logger.info(f"🔧 [RECIPE] Starting generate_menu_with_llm_constraints for user: {user_id}, menu_type: {menu_type}")
-    
-    try:
-        client = get_authenticated_client(user_id)
-        logger.info(f"🔐 [RECIPE] Authenticated client created for user: {user_id}")
-        
-        result = await llm_client.generate_menu_with_constraints(client, inventory_items, user_id, menu_type, excluded_recipes)
-        logger.info(f"✅ [RECIPE] generate_menu_with_llm_constraints completed successfully")
-        logger.debug(f"📊 [RECIPE] LLM constraints result: {result}")
-        
-        return result
-        
-    except Exception as e:
-        logger.error(f"❌ [RECIPE] Error in generate_menu_with_llm_constraints: {e}")
-        return {"success": False, "error": str(e)}
-
-
 @mcp.tool()
 async def get_recipe_history_for_user(user_id: str, token: str = None) -> Dict[str, Any]:
     """
@@ -117,7 +80,7 @@ async def generate_menu_plan_with_history(
     token: str = None
 ) -> Dict[str, Any]:
     """
-    履歴を考慮した献立プラン生成
+    LLM推論による独創的な献立プラン生成（履歴考慮）
     
     Args:
         inventory_items: 在庫食材リスト
@@ -193,18 +156,36 @@ async def search_menu_from_rag_with_history(
         logger.info(f"🔍 [RECIPE] RAG search completed, found {len(rag_results)} recipes")
         
         # RAG検索結果を献立形式に変換
-        menu_result = await rag_client.convert_rag_results_to_menu_format(
-            rag_results=rag_results,
-            inventory_items=inventory_items,
-            menu_type=menu_type
-        )
+        try:
+            logger.info(f"🔄 [RECIPE] Starting convert_rag_results_to_menu_format")
+            menu_result = await rag_client.convert_rag_results_to_menu_format(
+                rag_results=rag_results,
+                inventory_items=inventory_items,
+                menu_type=menu_type
+            )
+            logger.info(f"✅ [RECIPE] convert_rag_results_to_menu_format completed")
+        except Exception as e:
+            logger.error(f"❌ [RECIPE] Error in convert_rag_results_to_menu_format: {e}")
+            logger.error(f"❌ [RECIPE] RAG results: {rag_results}")
+            raise
         
         logger.info(f"✅ [RECIPE] search_menu_from_rag_with_history completed successfully")
         logger.debug(f"📊 [RECIPE] RAG menu result: {menu_result}")
         
+        # 1件の献立のみを返す（LLM推論と合わせて計2件をユーザーに提示）
+        selected_menu = menu_result.get("selected", {})
+        
+        # generate_menu_plan_with_historyと同じ形式に統一
+        formatted_data = {
+            "main_dish": selected_menu.get("main_dish", {}).get("title", ""),
+            "side_dish": selected_menu.get("side_dish", {}).get("title", ""),
+            "soup": selected_menu.get("soup", {}).get("title", ""),
+            "ingredients_used": []
+        }
+        
         return {
             "success": True,
-            "data": menu_result
+            "data": formatted_data
         }
         
     except Exception as e:

@@ -148,14 +148,14 @@ if __name__ == "__main__":
 
 ```python
 @mcp.tool()
-async def generate_menu_with_llm_constraints(
+async def generate_menu_plan_with_history(
     inventory_items: List[str],
     user_id: str,
     menu_type: str = "和食",
     excluded_recipes: List[str] = None
 ) -> Dict[str, Any]:
     """
-    LLM推論による独創的な献立タイトル生成
+    LLM推論による独創的な献立プラン生成（履歴考慮）
     
     Args:
         inventory_items: 在庫食材リスト
@@ -377,7 +377,7 @@ class RecipeMCPServer:
     ) -> Dict[str, Any]:
         """統合献立提案"""
         # 1. 並列提示システムの実行
-        llm_result = await self.generate_menu_with_llm_constraints(
+        llm_result = await self.generate_menu_plan_with_history(
             inventory_items, user_id, menu_type
         )
         rag_result = await self.search_menu_from_rag_with_history(
