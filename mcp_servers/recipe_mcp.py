@@ -95,7 +95,7 @@ async def generate_menu_plan_with_history(
     logger.info(f"🔧 [RECIPE] Starting generate_menu_plan_with_history for user: {user_id}, menu_type: {menu_type}")
     
     try:
-        client = get_authenticated_client(user_id)
+        client = get_authenticated_client(user_id, token)
         logger.info(f"🔐 [RECIPE] Authenticated client created for user: {user_id}")
         
         result = await llm_client.generate_menu_titles(inventory_items, menu_type, excluded_recipes)
@@ -145,6 +145,10 @@ async def search_menu_from_rag_with_history(
     logger.info(f"🔧 [RECIPE] Starting search_menu_from_rag_with_history for user: {user_id}, menu_type: {menu_type}")
     
     try:
+        # 認証済みクライアントを取得（一貫性のため）
+        client = get_authenticated_client(user_id, token)
+        logger.info(f"🔐 [RECIPE] Authenticated client created for user: {user_id}")
+        
         # RAG検索を実行
         rag_results = await rag_client.search_similar_recipes(
             ingredients=inventory_items,
