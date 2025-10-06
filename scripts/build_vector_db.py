@@ -31,6 +31,22 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# 調味料キーワードリスト（検索対象外）
+SEASONING_KEYWORDS = [
+    # 基本調味料
+    '醤油', 'しょうゆ', '砂糖', '塩', '胡椒', 'こしょう', '酒', 'みりん', '酢',
+    # 油類
+    '油', 'ごま油', 'サラダ油', 'バター', 'マーガリン', 'オリーブオイル',
+    # 発酵調味料
+    '味噌', 'みそ', 'だし', 'コンソメ', 'ブイヨン',
+    # ソース類
+    'ケチャップ', 'マヨネーズ', 'マスタード', 'ウスターソース', 'オイスターソース',
+    # 香辛料
+    'わさび', 'からし', 'しょうが', 'にんにく', 'ねぎ', 'みつば', 'しそ', '大葉',
+    # その他
+    '片栗粉', '小麦粉', 'パン粉', 'ベーキングパウダー', '重曹'
+]
+
 def load_recipe_data(file_path: str) -> List[Dict[str, Any]]:
     """
     レシピデータをJSONLファイルから読み込む
@@ -200,7 +216,12 @@ def normalize_ingredients(ingredients_text: str) -> List[str]:
             ingredients.append(ingredient)
     
     # 重複を除去
-    return list(set(ingredients))
+    ingredients = list(set(ingredients))
+    
+    # 調味料を除外
+    ingredients = filter_seasonings(ingredients)
+    
+    return ingredients
 
 def extract_ingredient_name(ingredient_line: str) -> str:
     """
@@ -227,28 +248,45 @@ def extract_ingredient_name(ingredient_line: str) -> str:
     
     return ingredient
 
-def create_combined_text(title: str, ingredients: List[str], category: str) -> str:
+def filter_seasonings(ingredients: List[str]) -> List[str]:
     """
-    ベクトル化用の結合テキストを作成する
+    調味料を除外して食材のみを抽出する
     
     Args:
-        title: レシピタイトル
         ingredients: 食材リスト
-        category: レシピ分類
         
     Returns:
-        結合されたテキスト
+        調味料を除外した食材リスト
     """
-    # 食材リストを文字列に変換
+    filtered = []
+    for ingredient in ingredients:
+        # 調味料かどうかをチェック
+        is_seasoning = any(keyword in ingredient for keyword in SEASONING_KEYWORDS)
+        if not is_seasoning:
+            filtered.append(ingredient)
+    
+    logger.info(f"調味料除外: {len(ingredients)} → {len(filtered)} (除外: {len(ingredients) - len(filtered)})")
+    return filtered
+
+def create_combined_text(title: str, ingredients: List[str], category: str) -> str:
+    """
+    ベクトル化用の結合テキストを作成する（食材のみ）
+    
+    Args:
+        title: レシピタイトル（使用しない）
+        ingredients: 食材リスト（調味料除外済み）
+        category: レシピ分類（使用しない）
+        
+    Returns:
+        食材のみの結合テキスト
+    """
+    # 食材リストを文字列に変換（調味料は既に除外済み）
     ingredients_str = ' '.join(ingredients)
     
-    # 結合テキストを作成（分離記号を使用してタイトルと食材を明確に分離）
-    combined_text = f"{title} | {ingredients_str} | {category}"
-    
     # 余分なスペースを除去
-    combined_text = ' '.join(combined_text.split())
+    ingredients_str = ' '.join(ingredients_str.split())
     
-    return combined_text
+    return ingredients_str
 
 def build_vector_database(processed_recipes: List[Dict[str, Any]], output_dir: str):
     """

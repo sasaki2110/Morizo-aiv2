@@ -24,6 +24,7 @@ if not root_logger.handlers:
     from config.logging import setup_logging
     setup_logging(initialize=False)  # ローテーションなし
 
+
 class RecipeRAGClient:
     """レシピRAG検索クライアント"""
     
@@ -40,6 +41,7 @@ class RecipeRAGClient:
         # LLMクライアントの初期化
         self.llm_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         self.llm_client = AsyncOpenAI()
+        
     
     def _get_vectorstore(self) -> Chroma:
         """ベクトルストアの取得（遅延初期化）"""
@@ -75,6 +77,7 @@ class RecipeRAGClient:
             検索結果のリスト
         """
         try:
+            
             # 部分マッチング機能を使用
             results = await self.search_recipes_by_partial_match(
                 ingredients=ingredients,
@@ -83,6 +86,7 @@ class RecipeRAGClient:
                 limit=limit,
                 min_match_score=0.05  # 低い閾値で幅広く検索
             )
+            
             
             # 既存のAPIとの互換性のため、不要なフィールドを削除
             formatted_results = []
@@ -95,6 +99,7 @@ class RecipeRAGClient:
                     "content": result["content"]
                 }
                 formatted_results.append(formatted_result)
+            
             
             return formatted_results
             
@@ -129,17 +134,22 @@ class RecipeRAGClient:
             検索結果のリスト（マッチングスコア付き）
         """
         try:
+            
+            # 在庫食材の重複を除去して正規化
+            normalized_ingredients = list(set(ingredients))
+            
             # ベクトルストアを取得
             vectorstore = self._get_vectorstore()
             
             # より多くの結果を取得して部分マッチングでフィルタリング
-            query = f"{' '.join(ingredients)} {menu_type}"
+            query = f"{' '.join(normalized_ingredients)} {menu_type}"
+            
             results = vectorstore.similarity_search(query, k=limit * 4)  # 多めに取得
             
             # 部分マッチングでフィルタリングとスコアリング
             scored_results = []
             
-            for result in results:
+            for i, result in enumerate(results):
                 try:
                     metadata = result.metadata
                     content = result.page_content
@@ -152,6 +162,7 @@ class RecipeRAGClient:
                         if len(parts) >= 1:
                             title = parts[0].strip()
                     
+                    
                     # 除外レシピチェック
                     if excluded_recipes and any(excluded in title for excluded in excluded_recipes):
                         continue
@@ -161,22 +172,26 @@ class RecipeRAGClient:
                     recipe_ingredients = parts[1] if len(parts) > 1 else ""
                     
                     # 部分マッチングスコアを計算
-                    if not recipe_ingredients or not ingredients:
+                    if not recipe_ingredients or not normalized_ingredients:
                         match_score = 0.0
                     else:
                         recipe_words = recipe_ingredients.split()
                         matched_count = 0
-                        total_inventory = len(ingredients)
+                        total_inventory = len(normalized_ingredients)
+                        matched_items = []
                         
-                        for inventory_item in ingredients:
+                        
+                        for inventory_item in normalized_ingredients:
                             # 完全マッチ
                             if inventory_item in recipe_words:
                                 matched_count += 1
+                                matched_items.append(f"{inventory_item}(完全)")
                             else:
                                 # 部分マッチ（在庫食材がレシピ食材に含まれる）
                                 for word in recipe_words:
                                     if inventory_item in word or word in inventory_item:
                                         matched_count += 0.5
+                                        matched_items.append(f"{inventory_item}(部分)")
                                         break
                         
                         # スコア計算: マッチした食材数 / 在庫食材数
@@ -184,11 +199,12 @@ class RecipeRAGClient:
                     
                     # 最小スコア以上のレシピのみを追加
                     if match_score >= min_match_score:
+                        
                         # マッチした食材を取得
                         matched_ingredients = []
-                        if recipe_ingredients and ingredients:
+                        if recipe_ingredients and normalized_ingredients:
                             recipe_words = recipe_ingredients.split()
-                            for inventory_item in ingredients:
+                            for inventory_item in normalized_ingredients:
                                 # 完全マッチ
                                 if inventory_item in recipe_words:
                                     matched_ingredients.append(inventory_item)
@@ -210,6 +226,8 @@ class RecipeRAGClient:
                             "recipe_ingredients": recipe_ingredients
                         }
                         scored_results.append(formatted_result)
+                    else:
+                        pass
                         
                 except Exception as e:
                     logger.warning(f"結果処理エラー: {e}")
@@ -218,7 +236,9 @@ class RecipeRAGClient:
             # マッチングスコア順にソート
             scored_results.sort(key=lambda x: x['match_score'], reverse=True)
             
-            return scored_results[:limit]
+            final_results = scored_results[:limit]
+            
+            return final_results
             
         except Exception as e:
             logger.error(f"部分マッチング検索エラー: {e}")
@@ -448,11 +468,11 @@ class RecipeRAGClient:
 候補献立:
 {candidates_text}
 
-以下のJSON形式で最適な献立を返してください:
+以下のJSON形式で最適な献立を返してください（タイトルは元のレシピタイトルをそのまま使用してください）:
 {{
-    "main_dish": {{"title": "選択された主菜", "ingredients": ["食材1", "食材2"]}},
-    "side_dish": {{"title": "選択された副菜", "ingredients": ["食材1", "食材2"]}},
-    "soup": {{"title": "選択された汁物", "ingredients": ["食材1", "食材2"]}},
+    "main_dish": {{"title": "元のレシピタイトルそのまま", "ingredients": ["食材1", "食材2"]}},
+    "side_dish": {{"title": "元のレシピタイトルそのまま", "ingredients": ["食材1", "食材2"]}},
+    "soup": {{"title": "元のレシピタイトルそのまま", "ingredients": ["食材1", "食材2"]}},
     "selection_reason": "選択理由"
 }}
 """
