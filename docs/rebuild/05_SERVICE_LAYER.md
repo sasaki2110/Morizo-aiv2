@@ -44,41 +44,39 @@
 ```
 Core Layer (TrueReactAgent)
     ↓ (Service.Method Call)
-Service Layer (各サービスがMCPClientを利用)
+Service Layer (各サービスがToolRouterを利用)
     ↓ (Tool Name Call)
-MCPClient (ツール名からMCPサーバーへルーティング)
-    ↓ (Tool Name Call)
+ToolRouter (ツール名からMCPサーバーへルーティング)
+    ↓ (MCPClient.call_tool)
+MCPClient (既存のFastMCPクライアント)
+    ↓ (stdio接続)
 MCP Layer (各MCPツール)
     ↓ (DB Access, API Call)
 External Systems (DB, API, etc.)
 ```
 
-## 🛠️ FastMCP Client統合
+## 🛠️ ToolRouter統合
 
-**重要: MCPClientコンポーネントの設計思想**
+**重要: ToolRouterコンポーネントの設計思想**
 
-`MCPClient`は、`FastMCP`ライブラリが提供する汎用的なクライアント機能のことでは**ありません**。これは、本プロジェクトで**自前で実装する、非常に重要なカスタムコンポーネント**です。
+`ToolRouter`は、`FastMCP`ライブラリが提供する汎用的なクライアント機能のことでは**ありません**。これは、本プロジェクトで**自前で実装する、非常に重要なカスタムコンポーネント**です。
 
 このクラスは「サービスロケータ」あるいは「ルータ」としての役割を担い、サービス層とMCP層を疎結合に保つための要（かなめ）となります。
 
 **責務と動作:**
-1.  **ルーティング情報の一元管理:** `MCPClient`は、どのツール（例: `generate_menu_*`）がどのMCPサーバー（例: `recipe`）に属しているかという対応表（`tool_server_mapping`）を唯一の知識として保持します。
-2.  **統一インターフェースの提供:** すべてのサービスクラス（`RecipeService`など）は、具体的なMCPサーバー（`RecipeMCPServer`など）の存在を意識しません。代わりに、この`MCPClient`のインスタンスを一つだけ受け取り、汎用的な `call_tool("ツール名", ...)` メソッドのみを呼び出します。
-3.  **処理の振り分け:** `call_tool`が呼び出されると、`MCPClient`は内部の対応表に基づき、リクエストを適切なMCPサーバーへ自動的に振り分けます。
+1.  **ルーティング情報の一元管理:** `ToolRouter`は、どのツール（例: `generate_menu_*`）がどのMCPサーバー（例: `recipe`）に属しているかという対応表（`tool_server_mapping`）を唯一の知識として保持します。
+2.  **統一インターフェースの提供:** すべてのサービスクラス（`RecipeService`など）は、具体的なMCPサーバー（`RecipeMCPServer`など）の存在を意識しません。代わりに、この`ToolRouter`のインスタンスを一つだけ受け取り、汎用的な `route_tool("ツール名", ...)` メソッドのみを呼び出します。
+3.  **処理の振り分け:** `route_tool`が呼び出されると、`ToolRouter`は内部の対応表に基づき、リクエストを適切なMCPサーバーへ自動的に振り分けます。
 
-この設計により、将来MCPサーバーの構成が変更（例: ツールの移動、サーバーの分割）されたとしても、修正箇所は`MCPClient`内部の対応表のみに限定され、サービス層のコードには一切影響が及びません。将来のAIは、この設計意D図を理解し、`MCPClient`を上記の責務を持つカスタムクラスとして実装する必要があります。
+この設計により、将来MCPサーバーの構成が変更（例: ツールの移動、サーバーの分割）されたとしても、修正箇所は`ToolRouter`内部の対応表のみに限定され、サービス層のコードには一切影響が及びません。将来のAIは、この設計意図を理解し、`ToolRouter`を上記の責務を持つカスタムクラスとして実装する必要があります。
 
-### **MCP Clientの使用方法**
+### **ToolRouterの使用方法**
 ```python
-from fastmcp import FastMCP
+from mcp_servers.client import MCPClient
 
-class MCPClient:
+class ToolRouter:
     def __init__(self):
-        self.servers = {
-            "recipe": RecipeMCPServer(),
-            "inventory": InventoryMCPServer(),
-            "recipe_history": RecipeHistoryMCPServer()
-        }
+        self.mcp_client = MCPClient()  # 既存のMCPクライアントを使用
         self.tool_server_mapping = {
             "inventory_*": "inventory",
             "recipes_*": "recipe_history",
@@ -86,41 +84,43 @@ class MCPClient:
             "search_recipe_*": "recipe"
         }
     
-    async def call_tool(
+    async def route_tool(
         self, 
         tool_name: str, 
-        parameters: Dict[str, Any]
+        parameters: Dict[str, Any],
+        token: str
     ) -> Any:
-        """ツールを呼び出し"""
+        """ツールを適切なMCPサーバーにルーティング"""
         # 1. 適切なサーバーを選択
-        server = await self.select_server(tool_name)
+        server_name = self._select_server(tool_name)
         
-        if not server:
+        if not server_name:
             raise ToolNotFoundError(f"Tool {tool_name} not found")
         
-        # 2. サーバーにツール実行を委譲
-        return await server.call_tool(tool_name, parameters)
+        # 2. 既存のMCPクライアントに処理を委譲
+        return await self.mcp_client.call_tool(tool_name, parameters, token)
     
-    async def select_server(self, tool_name: str) -> MCPServer:
-        """ツール名に基づいて適切なサーバーを選択"""
+    def _select_server(self, tool_name: str) -> str:
+        """ツール名に基づいて適切なサーバー名を選択"""
         for pattern, server_name in self.tool_server_mapping.items():
             if fnmatch.fnmatch(tool_name, pattern):
-                return self.servers.get(server_name)
+                return server_name
         return None
 ```
 
-### **サービス層でのMCP Client使用**
+### **サービス層でのToolRouter使用**
 ```python
 class RecipeService:
-    def __init__(self, mcp_client: MCPClient):
-        self.mcp_client = mcp_client
+    def __init__(self, tool_router: ToolRouter):
+        self.tool_router = tool_router
     
-    async def search_recipes(self, title: str) -> List[Recipe]:
+    async def search_recipes(self, title: str, token: str) -> List[Recipe]:
         """レシピを検索"""
-        # MCP Client経由でツール呼び出し
-        result = await self.mcp_client.call_tool(
+        # ToolRouter経由でツール呼び出し
+        result = await self.tool_router.route_tool(
             "search_recipe_from_web",
-            {"recipe_titles": [title]}
+            {"recipe_titles": [title]},
+            token
         )
         return result
 ```
@@ -225,14 +225,15 @@ class RecipeService:
         menu_type: str = "和食"
     ) -> MenuPlan:
         """在庫食材から献立構成を生成"""
-        # MCP Client経由でRecipeMCPツールを呼び出し
-        result = await self.mcp_client.call_tool(
+        # ToolRouter経由でRecipeMCPツールを呼び出し
+        result = await self.tool_router.route_tool(
             "generate_menu_plan_with_history",
             {
                 "inventory_items": inventory_items,
                 "user_id": user_id,
                 "menu_type": menu_type
-            }
+            },
+            token
         )
         return result
     
@@ -243,10 +244,11 @@ class RecipeService:
         available_ingredients: List[str]
     ) -> List[Recipe]:
         """レシピを検索"""
-        # MCP Client経由でRecipeMCPツールを呼び出し
-        result = await self.mcp_client.call_tool(
+        # ToolRouter経由でRecipeMCPツールを呼び出し
+        result = await self.tool_router.route_tool(
             "search_recipe_from_web",
-            {"recipe_titles": [title]}
+            {"recipe_titles": [title]},
+            token
         )
         return result
     
@@ -257,12 +259,13 @@ class RecipeService:
         exclusion_days: int = 14
     ) -> CookingHistory:
         """過去の調理履歴をチェック"""
-        # MCP Client経由でRecipeHistoryMCPツールを呼び出し
-        result = await self.mcp_client.call_tool(
+        # ToolRouter経由でRecipeHistoryMCPツールを呼び出し
+        result = await self.tool_router.route_tool(
             "history_list",
             {
                 "user_id": user_id
-            }
+            },
+            token
         )
         return result
 ```
@@ -270,10 +273,10 @@ class RecipeService:
 #### **実装方針**
 ```python
 class RecipeService:
-    def __init__(self, mcp_client: MCPClient):
-        self.mcp_client = mcp_client
+    def __init__(self, tool_router: ToolRouter):
+        self.tool_router = tool_router
     
-    # 各メソッドはMCP Client経由でツール呼び出し
+    # 各メソッドはToolRouter経由でツール呼び出し
     # ビジネスロジックはMCP層で実装
     # データ変換・バリデーションはサービス層で実装
 ```
@@ -295,8 +298,8 @@ class InventoryService:
         item: InventoryItem
     ) -> str:
         """在庫を追加"""
-        # MCP Client経由でInventoryMCPツールを呼び出し
-        result = await self.mcp_client.call_tool(
+        # ToolRouter経由でInventoryMCPツールを呼び出し
+        result = await self.tool_router.route_tool(
             "inventory_add",
             {
                 "user_id": user_id,
@@ -305,7 +308,8 @@ class InventoryService:
                 "unit": item.unit,
                 "storage_location": item.storage_location,
                 "expiry_date": item.expiry_date
-            }
+            },
+            token
         )
         return result
         
@@ -314,10 +318,11 @@ class InventoryService:
         user_id: str
     ) -> List[InventoryItem]:
         """在庫一覧を取得"""
-        # MCP Client経由でInventoryMCPツールを呼び出し
-        result = await self.mcp_client.call_tool(
+        # ToolRouter経由でInventoryMCPツールを呼び出し
+        result = await self.tool_router.route_tool(
             "inventory_list",
-            {"user_id": user_id}
+            {"user_id": user_id},
+            token
         )
         return result
         
@@ -329,32 +334,37 @@ class InventoryService:
         strategy: str = None  # "by_id", "by_name", "by_name_oldest", "by_name_latest"
     ) -> bool:
         """在庫を更新（呼び出し元で曖昧性解決済み）"""
-        # 戦略に基づいて適切なMCPツールを呼び出し
+        # 戦略に基づいて適切なToolRouterツールを呼び出し
         if strategy == "by_id":
-            result = await self.mcp_client.call_tool(
+            result = await self.tool_router.route_tool(
                 "inventory_update_by_id",
-                {"user_id": user_id, "item_id": item_identifier, **updates}
+                {"user_id": user_id, "item_id": item_identifier, **updates},
+                token
             )
         elif strategy == "by_name":
-            result = await self.mcp_client.call_tool(
+            result = await self.tool_router.route_tool(
                 "inventory_update_by_name",
-                {"user_id": user_id, "item_name": item_identifier, **updates}
+                {"user_id": user_id, "item_name": item_identifier, **updates},
+                token
             )
         elif strategy == "by_name_oldest":
-            result = await self.mcp_client.call_tool(
+            result = await self.tool_router.route_tool(
                 "inventory_update_by_name_oldest",
-                {"user_id": user_id, "item_name": item_identifier, **updates}
+                {"user_id": user_id, "item_name": item_identifier, **updates},
+                token
             )
         elif strategy == "by_name_latest":
-            result = await self.mcp_client.call_tool(
+            result = await self.tool_router.route_tool(
                 "inventory_update_by_name_latest",
-                {"user_id": user_id, "item_name": item_identifier, **updates}
+                {"user_id": user_id, "item_name": item_identifier, **updates},
+                token
             )
         else:
             # デフォルト：IDとして扱う
-            result = await self.mcp_client.call_tool(
+            result = await self.tool_router.route_tool(
                 "inventory_update_by_id",
-                {"user_id": user_id, "item_id": item_identifier, **updates}
+                {"user_id": user_id, "item_id": item_identifier, **updates},
+                token
             )
         return result
         
@@ -365,32 +375,37 @@ class InventoryService:
         strategy: str = None  # "by_id", "by_name", "by_name_oldest", "by_name_latest"
     ) -> bool:
         """在庫を削除（呼び出し元で曖昧性解決済み）"""
-        # 戦略に基づいて適切なMCPツールを呼び出し
+        # 戦略に基づいて適切なToolRouterツールを呼び出し
         if strategy == "by_id":
-            result = await self.mcp_client.call_tool(
+            result = await self.tool_router.route_tool(
                 "inventory_delete_by_id",
-                {"user_id": user_id, "item_id": item_identifier}
+                {"user_id": user_id, "item_id": item_identifier},
+                token
             )
         elif strategy == "by_name":
-            result = await self.mcp_client.call_tool(
+            result = await self.tool_router.route_tool(
                 "inventory_delete_by_name",
-                {"user_id": user_id, "item_name": item_identifier}
+                {"user_id": user_id, "item_name": item_identifier},
+                token
             )
         elif strategy == "by_name_oldest":
-            result = await self.mcp_client.call_tool(
+            result = await self.tool_router.route_tool(
                 "inventory_delete_by_name_oldest",
-                {"user_id": user_id, "item_name": item_identifier}
+                {"user_id": user_id, "item_name": item_identifier},
+                token
             )
         elif strategy == "by_name_latest":
-            result = await self.mcp_client.call_tool(
+            result = await self.tool_router.route_tool(
                 "inventory_delete_by_name_latest",
-                {"user_id": user_id, "item_name": item_identifier}
+                {"user_id": user_id, "item_name": item_identifier},
+                token
             )
         else:
             # デフォルト：IDとして扱う
-            result = await self.mcp_client.call_tool(
+            result = await self.tool_router.route_tool(
                 "inventory_delete_by_id",
-                {"user_id": user_id, "item_id": item_identifier}
+                {"user_id": user_id, "item_id": item_identifier},
+                token
             )
         return result
 ```
@@ -398,10 +413,10 @@ class InventoryService:
 #### **実装方針**
 ```python
 class InventoryService:
-    def __init__(self, mcp_client: MCPClient):
-        self.mcp_client = mcp_client
+    def __init__(self, tool_router: ToolRouter):
+        self.tool_router = tool_router
     
-    # 各メソッドはMCP Client経由でツール呼び出し
+    # 各メソッドはToolRouter経由でツール呼び出し
     # ビジネスロジックはMCP層で実装
     # 戦略パターンによる適切なツール選択はサービス層で実装
 ```
