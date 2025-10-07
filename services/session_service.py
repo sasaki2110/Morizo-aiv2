@@ -52,7 +52,7 @@ class SessionService:
             
             # セッションを作成
             session = Session(
-                id=session_id,
+                session_id=session_id,
                 user_id=user_id
             )
             
