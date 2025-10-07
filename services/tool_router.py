@@ -32,6 +32,22 @@ class ToolRouter:
         # MCP Clientのマッピングを参照（重複を排除）
         self.tool_server_mapping = self.mcp_client.tool_server_mapping
         
+        # サービス名・メソッド名からMCPツール名へのマッピング
+        self.service_method_mapping = {
+            # InventoryService のマッピング
+            ("inventory_service", "get_inventory"): "inventory_list",
+            ("inventory_service", "add_inventory"): "inventory_add",
+            ("inventory_service", "update_inventory"): "inventory_update_by_id",  # デフォルトはID指定
+            ("inventory_service", "delete_inventory"): "inventory_delete_by_id",  # デフォルトはID指定
+            
+            # RecipeService のマッピング
+            ("recipe_service", "generate_menu_plan"): "generate_menu_plan_with_history",
+            ("recipe_service", "search_recipes"): "search_recipe_from_web",
+            ("recipe_service", "check_cooking_history"): "get_recipe_history_for_user",
+            
+            # 他のサービスのマッピング（必要に応じて追加）
+        }
+        
         # ロガー設定
         self.logger = GenericLogger("service", "tool_router")
     
@@ -77,6 +93,60 @@ class ToolRouter:
                 "success": False,
                 "error": str(e),
                 "tool": tool_name
+            }
+    
+    async def route_service_method(
+        self, 
+        service: str, 
+        method: str, 
+        parameters: Dict[str, Any], 
+        token: str
+    ) -> Dict[str, Any]:
+        """
+        サービス名・メソッド名からMCPツールをルーティング
+        
+        Args:
+            service: サービス名（例: "inventory_service"）
+            method: メソッド名（例: "get_inventory"）
+            parameters: ツールに渡すパラメータ
+            token: 認証トークン
+        
+        Returns:
+            ツール実行結果
+        """
+        try:
+            # 1. サービス名・メソッド名からMCPツール名を取得
+            tool_name = self.service_method_mapping.get((service, method))
+            if not tool_name:
+                self.logger.error(f"❌ [ToolRouter] Unknown service method: {service}.{method}")
+                return {
+                    "success": False,
+                    "error": f"Unknown service method: {service}.{method}",
+                    "service": service,
+                    "method": method
+                }
+            
+            # 2. ログ出力
+            self.logger.info(f"🔧 [ToolRouter] Routing service method: {service}.{method} → {tool_name}")
+            
+            # 3. 既存のroute_toolメソッドを使用してMCPツールを実行
+            result = await self.route_tool(tool_name, parameters, token)
+            
+            # 4. 結果にサービス情報を追加
+            if isinstance(result, dict):
+                result["service"] = service
+                result["method"] = method
+                result["mapped_tool"] = tool_name
+            
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"❌ [ToolRouter] Service method routing failed: {service}.{method} - {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "service": service,
+                "method": method
             }
     
     def _is_valid_tool(self, tool_name: str) -> bool:

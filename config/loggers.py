@@ -94,7 +94,7 @@ def log_execution_time_async(func):
     return wrapper
 
 
-def log_prompt_with_tokens(prompt: str, max_tokens: int = 4000, logger_name: str = "llm"):
+def log_prompt_with_tokens(prompt: str, max_tokens: int = 4000, logger_name: str = "llm", show_full_prompt: bool = False):
     """プロンプトとトークン数情報をログに記録"""
     logger = get_logger(logger_name)
     
@@ -109,14 +109,19 @@ def log_prompt_with_tokens(prompt: str, max_tokens: int = 4000, logger_name: str
     elif token_usage_ratio > 1.0:
         logger.error(f"❌ [PROMPT] トークン数が上限を超過: {token_usage_ratio:.1%}")
     
-    # プロンプト内容（5行で省略）
-    prompt_lines = prompt.split('\n')
-    if len(prompt_lines) > 5:
-        displayed_prompt = '\n'.join(prompt_lines[:5]) + f"\n... (省略: 残り{len(prompt_lines)-5}行)"
+    # プロンプト内容の表示制御
+    if show_full_prompt:
+        # 全文表示
+        logger.info(f"🔤 [PROMPT] プロンプト内容（全文）:\n{prompt}")
     else:
-        displayed_prompt = prompt
-    
-    logger.info(f"🔤 [PROMPT] プロンプト内容:\n{displayed_prompt}")
+        # 5行で省略（現状通り）
+        prompt_lines = prompt.split('\n')
+        if len(prompt_lines) > 5:
+            displayed_prompt = '\n'.join(prompt_lines[:5]) + f"\n... (省略: 残り{len(prompt_lines)-5}行)"
+        else:
+            displayed_prompt = prompt
+        
+        logger.info(f"🔤 [PROMPT] プロンプト内容:\n{displayed_prompt}")
 
 
 if __name__ == "__main__":
