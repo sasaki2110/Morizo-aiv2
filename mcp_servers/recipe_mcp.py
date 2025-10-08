@@ -198,13 +198,14 @@ async def search_menu_from_rag_with_history(
 
 
 @mcp.tool()
-async def search_recipe_from_web(recipe_title: str, num_results: int = 5, token: str = None) -> Dict[str, Any]:
+async def search_recipe_from_web(recipe_title: str, num_results: int = 5, user_id: str = "", token: str = None) -> Dict[str, Any]:
     """
     Web検索によるレシピ検索
     
     Args:
         recipe_title: 検索するレシピタイトル
         num_results: 取得する結果数
+        user_id: ユーザーID（一貫性のため受け取るが使用しない）
         token: 認証トークン
     
     Returns:

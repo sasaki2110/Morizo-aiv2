@@ -197,12 +197,57 @@ class TestTrueReactAgent:
             print(f"✅ [CORE_TEST] process_request completed successfully")
             print(f"📄 [CORE_TEST] Result: {result}")
             
+            # Web検索結果の整形・出力を追加
+            self._display_web_search_results(agent)
+            
         except Exception as e:
             logger.error(f"❌ [CORE_TEST] process_request test failed: {str(e)}")
             print(f"❌ [CORE_TEST] process_request test failed: {str(e)}")
             # エラーが発生してもログ出力は確認できるので、例外を再発生させない
             logger.info("ℹ️ [CORE_TEST] Error occurred but this is expected for integration test")
             print("ℹ️ [CORE_TEST] Error occurred but this is expected for integration test")
+
+    def _display_web_search_results(self, agent):
+        """Web検索結果を見やすい形で表示"""
+        try:
+            # TaskChainManagerからtask4の結果を取得
+            if hasattr(agent, 'task_chain_manager') and agent.task_chain_manager.results:
+                task4_result = agent.task_chain_manager.results.get('task4')
+                
+                if task4_result and task4_result.get('success'):
+                    web_data = task4_result.get('result', {}).get('data', [])
+                    
+                    if web_data:
+                        print("\n" + "="*80)
+                        print("🍽️ [WEB_SEARCH_RESULTS] 検索されたレシピ一覧")
+                        print("="*80)
+                        
+                        for i, recipe in enumerate(web_data, 1):
+                            print(f"\n📋 レシピ {i}:")
+                            print(f"   🏷️  タイトル: {recipe.get('title', 'N/A')}")
+                            print(f"   🔗 URL: {recipe.get('url', 'N/A')}")
+                            print(f"   📝 説明: {recipe.get('description', 'N/A')}")
+                            print(f"   🌐 サイト: {recipe.get('site', 'N/A')} ({recipe.get('source', 'N/A')})")
+                        
+                        print("\n" + "="*80)
+                        
+                        # ログにも出力
+                        logger.info("🍽️ [WEB_SEARCH_RESULTS] Web検索結果を表示しました")
+                        for i, recipe in enumerate(web_data, 1):
+                            logger.info(f"📋 [WEB_SEARCH_RESULTS] レシピ{i}: {recipe.get('title', 'N/A')} - {recipe.get('url', 'N/A')}")
+                    else:
+                        print("\n⚠️ [WEB_SEARCH_RESULTS] Web検索結果が見つかりませんでした")
+                        logger.warning("⚠️ [WEB_SEARCH_RESULTS] Web検索結果が見つかりませんでした")
+                else:
+                    print("\n❌ [WEB_SEARCH_RESULTS] task4の実行に失敗しました")
+                    logger.error("❌ [WEB_SEARCH_RESULTS] task4の実行に失敗しました")
+            else:
+                print("\n⚠️ [WEB_SEARCH_RESULTS] TaskChainManagerの結果を取得できませんでした")
+                logger.warning("⚠️ [WEB_SEARCH_RESULTS] TaskChainManagerの結果を取得できませんでした")
+                
+        except Exception as e:
+            print(f"\n❌ [WEB_SEARCH_RESULTS] 結果表示中にエラーが発生しました: {e}")
+            logger.error(f"❌ [WEB_SEARCH_RESULTS] 結果表示中にエラーが発生しました: {e}")
 
 
 class TestTaskChainManager:

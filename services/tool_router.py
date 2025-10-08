@@ -40,10 +40,11 @@ class ToolRouter:
             ("inventory_service", "update_inventory"): "inventory_update_by_id",  # デフォルトはID指定
             ("inventory_service", "delete_inventory"): "inventory_delete_by_id",  # デフォルトはID指定
             
-            # RecipeService のマッピング
+            # RecipeService のマッピング（修正版）
             ("recipe_service", "generate_menu_plan"): "generate_menu_plan_with_history",
-            ("recipe_service", "search_recipes"): "search_recipe_from_web",
-            ("recipe_service", "check_cooking_history"): "get_recipe_history_for_user",
+            ("recipe_service", "search_menu_from_rag"): "search_menu_from_rag_with_history",
+            ("recipe_service", "search_recipes_from_web"): "search_recipe_from_web",
+            ("recipe_service", "get_recipe_history"): "get_recipe_history_for_user",
             
             # 他のサービスのマッピング（必要に応じて追加）
         }
@@ -76,8 +77,11 @@ class ToolRouter:
             # 2. ログ出力
             self.logger.info(f"🔧 [ToolRouter] Routing tool: {tool_name}")
             
-            # 3. 既存のMCPクライアントに処理を委譲
-            result = await self.mcp_client.call_tool(tool_name, parameters, token)
+            # 3. パラメータマッピング処理
+            mapped_parameters = self._map_parameters(tool_name, parameters)
+            
+            # 4. 既存のMCPクライアントに処理を委譲
+            result = await self.mcp_client.call_tool(tool_name, mapped_parameters, token)
             
             # 4. 結果の検証とログ
             if result.get("success"):
@@ -221,3 +225,31 @@ class ToolRouter:
                 descriptions[tool_name] = f"ツール: {tool_name}"
         
         return descriptions
+    
+    def _map_parameters(self, tool_name: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        ツール名に応じてパラメータをマッピング
+        
+        Args:
+            tool_name: MCPツール名
+            parameters: 元のパラメータ
+        
+        Returns:
+            マッピングされたパラメータ
+        """
+        mapped = parameters.copy()
+        
+        # search_recipe_from_webツールの場合、recipe_titlesをrecipe_titleにマッピング
+        if tool_name == "search_recipe_from_web" and "recipe_titles" in mapped:
+            # recipe_titles（リスト）をrecipe_title（文字列）に変換
+            recipe_titles = mapped.pop("recipe_titles")
+            if isinstance(recipe_titles, list) and recipe_titles:
+                # リストの最初の要素をrecipe_titleとして使用
+                mapped["recipe_title"] = recipe_titles[0]
+                self.logger.info(f"🔧 [ToolRouter] Mapped recipe_titles to recipe_title: {recipe_titles[0]}")
+            else:
+                # 空のリストの場合は空文字列
+                mapped["recipe_title"] = ""
+                self.logger.info(f"🔧 [ToolRouter] Mapped empty recipe_titles to empty recipe_title")
+        
+        return mapped

@@ -39,7 +39,7 @@ class LLMService:
     
     def _build_planning_prompt(self, user_request: str) -> str:
         """
-        タスク分解用のプロンプトを構築
+        タスク分解用のプロンプトを構築（サービスメソッド名対応版）
         
         Args:
             user_request: ユーザーリクエスト
@@ -61,27 +61,35 @@ class LLMService:
   - `delete_inventory(item_identifier: str, strategy: str)`: 在庫を削除します。strategyには 'by_id', 'by_name', 'by_name_oldest', 'by_name_latest' が指定可能です。
 
 - **recipe_service**: レシピ・献立サービス
-  - `generate_menu_plan(inventory_items: list, user_id: str, ...)`: 在庫リストに基づき、最適な献立（主菜・副菜・汁物）を提案します。内部でLLMによる独創的な提案とRAGによる伝統的な提案を比較検討します。
-  - `search_recipes(title: str)`: 指定された料理名のレシピをWeb検索し、URLを含む詳細情報を返します。
-  - `check_cooking_history(user_id: str, ...)`: 過去の料理履歴を取得します。
+  - `generate_menu_plan(inventory_items: list, user_id: str, ...)`: 在庫リストに基づき、LLMによる独創的な献立提案を行います。過去の履歴も考慮します。
+  - `search_menu_from_rag(query: str, user_id: str, ...)`: RAGを使用して過去の献立履歴から類似の献立を検索します。
+  - `search_recipes_from_web(recipe_name: str, ...)`: 指定された料理名のレシピをWeb検索し、URLを含む詳細情報を返します。
+  - `get_recipe_history(user_id: str, ...)`: 過去の料理履歴を取得します。
 
 - **session_service**: セッション管理サービス（通常は直接呼び出し不要）
 
-
 **最重要ルール: 献立生成の際のタスク構成**
-ユーザーの要求が「献立」や「レシピ」に関するものである場合、必ず以下の2段階のタスク構成を使用してください:
-1. `inventory_service.get_inventory()` を呼び出し、現在の在庫をすべて取得する。
-2. `recipe_service.generate_menu_plan()` を呼び出す。その際、ステップ1で取得した在庫情報を `inventory_items` パラメータに設定する。
 
-**在庫追加と献立生成を同時に要求された場合のタスク構成**:
-1. `inventory_service.add_inventory()` でアイテムを追加する。（複数アイテムの場合は並列実行）
-2. `inventory_service.get_inventory()` を呼び出し、追加後を含めた最新の在庫を取得する。
-3. `recipe_service.generate_menu_plan()` を呼び出し、ステップ2の結果を注入する。
+ユーザーの要求が「献立」や「レシピ」に関するものである場合、必ず以下の4段階のタスク構成を使用してください：
+
+1. **task1**: `inventory_service.get_inventory()` を呼び出し、現在の在庫をすべて取得する。
+2. **task2**: `recipe_service.generate_menu_plan()` を呼び出す。その際、ステップ1で取得した在庫情報を `inventory_items` パラメータに設定する。
+3. **task3**: `recipe_service.search_menu_from_rag()` を呼び出す。その際、ステップ1で取得した在庫情報を `inventory_items` パラメータに設定する。
+4. **task4**: `recipe_service.search_recipes_from_web()` を呼び出す。その際、ステップ2とステップ3の結果を適切に処理する。
+
+**並列実行の指示**: task2とtask3は並列で実行可能です。dependenciesにtask1のみを指定してください。
+
+**献立データの処理ルール**:
+- task2とtask3の結果は辞書形式の献立データです（main_dish, side_dish, soupフィールドを含む）
+- task4では、task2とtask3の両方の結果を統合してレシピ検索を行ってください：
+  - `"recipe_titles": ["task2.result.main_dish", "task2.result.side_dish", "task3.result.main_dish", "task3.result.side_dish"]`
+  - または、主菜のみ: `"recipe_titles": ["task2.result.main_dish", "task3.result.main_dish"]`
 
 **パラメータ注入のルール**:
 - 先行タスクの結果を後続タスクのパラメータに注入する場合は、必ず `"先行タスク名.result"` 形式を使用してください。
+- 辞書フィールド参照の場合は `"先行タスク名.result.フィールド名"` 形式を使用してください。
 - 例: task1の結果をtask2で使用する場合 → `"inventory_items": "task1.result"`
-- 例: task2の結果をtask3で使用する場合 → `"some_param": "task2.result"`
+- 例: task2の主菜をtask4で使用する場合 → `"recipe_title": "task2.result.main_dish"`
 - この形式により、システムが自動的に先行タスクの結果を後続タスクに注入します。
 
 **曖昧な在庫操作の指示について**:
@@ -104,8 +112,7 @@ class LLMService:
     ]
 }}
 
-**パラメータ注入の具体例**:
-献立生成の場合:
+**献立生成の具体例（サービスメソッド名対応）**:
 {{
     "tasks": [
         {{
@@ -118,11 +125,29 @@ class LLMService:
         }},
         {{
             "id": "task2",
-            "description": "在庫リストに基づき、最適な献立を提案する",
+            "description": "在庫リストに基づき、LLMによる独創的な献立を提案する",
             "service": "recipe_service",
             "method": "generate_menu_plan",
             "parameters": {{ "inventory_items": "task1.result", "user_id": "user123" }},
             "dependencies": ["task1"]
+        }},
+        {{
+            "id": "task3",
+            "description": "在庫リストに基づき、RAGを使用して過去の献立履歴から類似献立を検索する",
+            "service": "recipe_service",
+            "method": "search_menu_from_rag",
+            "parameters": {{ "inventory_items": "task1.result", "user_id": "user123" }},
+            "dependencies": ["task1"]
+        }},
+        {{
+            "id": "task4",
+            "description": "提案された献立のレシピをWeb検索して詳細情報を取得する",
+            "service": "recipe_service",
+            "method": "search_recipes_from_web",
+            "parameters": {{ 
+                "recipe_title": "task2.result.main_dish"
+            }},
+            "dependencies": ["task2", "task3"]
         }}
     ]
 }}
@@ -331,13 +356,13 @@ class LLMService:
     
     async def format_response(
         self, 
-        results: List[Dict[str, Any]]
+        results: Dict[str, Any]
     ) -> str:
         """
-        最終回答整形（子ファイル委譲）
+        最終回答整形
         
         Args:
-            results: タスク実行結果リスト
+            results: タスク実行結果辞書 (task1, task2, task3, task4)
         
         Returns:
             整形された回答
@@ -345,17 +370,58 @@ class LLMService:
         try:
             self.logger.info(f"🔧 [LLMService] Formatting response for {len(results)} results")
             
-            # TODO: 実際の回答整形ロジックを実装
-            # 現在は基本的な実装
-            formatted_response = "タスクが完了しました。"
+            # task4のWeb検索結果を取得
+            web_recipes = []
+            if "task4" in results and results["task4"].get("success"):
+                web_data = results["task4"].get("result", {}).get("data", [])
+                web_recipes = web_data
             
+            # task2とtask3の献立を取得
+            llm_menu = {}
+            rag_menu = {}
+            if "task2" in results and results["task2"].get("success"):
+                llm_menu = results["task2"].get("result", {}).get("data", {})
+            if "task3" in results and results["task3"].get("success"):
+                rag_menu = results["task3"].get("result", {}).get("data", {})
+            
+            # レスポンスを構築
+            response_parts = []
+            
+            # 献立提案
+            if llm_menu:
+                response_parts.append("🍽️ **LLM献立提案**")
+                response_parts.append(f"主菜: {llm_menu.get('main_dish', 'N/A')}")
+                response_parts.append(f"副菜: {llm_menu.get('side_dish', 'N/A')}")
+                response_parts.append(f"汁物: {llm_menu.get('soup', 'N/A')}")
+                response_parts.append("")
+            
+            if rag_menu:
+                response_parts.append("🔍 **RAG献立提案**")
+                response_parts.append(f"主菜: {rag_menu.get('main_dish', 'N/A')}")
+                response_parts.append(f"副菜: {rag_menu.get('side_dish', 'N/A')}")
+                response_parts.append(f"汁物: {rag_menu.get('soup', 'N/A')}")
+                response_parts.append("")
+            
+            # Web検索結果
+            if web_recipes:
+                response_parts.append("🌐 **レシピ検索結果**")
+                for i, recipe in enumerate(web_recipes[:3], 1):  # 上位3件のみ
+                    response_parts.append(f"{i}. {recipe.get('title', 'N/A')}")
+                    response_parts.append(f"   URL: {recipe.get('url', 'N/A')}")
+                    response_parts.append(f"   説明: {recipe.get('description', 'N/A')[:100]}...")
+                    response_parts.append("")
+            
+            if not response_parts:
+                return "タスクが完了しましたが、結果を取得できませんでした。"
+            
+            final_response = "\n".join(response_parts)
             self.logger.info(f"✅ [LLMService] Response formatted successfully")
             
-            return formatted_response
+            return final_response
             
         except Exception as e:
             self.logger.error(f"❌ [LLMService] Error in format_response: {e}")
-            return "エラーが発生しました。"
+            return "タスクが完了しましたが、レスポンスの生成に失敗しました。"
     
     async def solve_constraints(
         self, 
