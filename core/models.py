@@ -67,13 +67,65 @@ class TaskChainManager:
     
     def send_progress(self, task_id: str, status: str, message: str = "") -> None:
         """Send progress update via SSE."""
-        # TODO: Implement SSE communication
-        pass
+        if self.sse_session_id:
+            try:
+                # SSE送信者を取得して進捗を送信
+                from api.utils.sse_manager import get_sse_sender
+                sse_sender = get_sse_sender()
+                
+                # 進捗率を計算（現在のステップ / 総ステップ数）
+                progress_percentage = int((self.current_step / self.total_steps) * 100) if self.total_steps > 0 else 0
+                
+                # 進捗メッセージを送信
+                import asyncio
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # 既にイベントループが実行中の場合は、タスクを作成
+                    asyncio.create_task(sse_sender.send_progress(
+                        self.sse_session_id, 
+                        progress_percentage, 
+                        f"タスク {task_id}: {message}"
+                    ))
+                else:
+                    # イベントループが実行されていない場合は、同期的に実行
+                    loop.run_until_complete(sse_sender.send_progress(
+                        self.sse_session_id, 
+                        progress_percentage, 
+                        f"タスク {task_id}: {message}"
+                    ))
+            except Exception as e:
+                # SSE送信エラーはログに記録するが、処理は継続
+                import logging
+                logger = logging.getLogger("core.models")
+                logger.error(f"❌ [TaskChainManager] SSE progress send failed: {e}")
     
     def send_complete(self, final_response: str) -> None:
         """Send completion notification via SSE."""
-        # TODO: Implement SSE communication
-        pass
+        if self.sse_session_id:
+            try:
+                # SSE送信者を取得して完了通知を送信
+                from api.utils.sse_manager import get_sse_sender
+                sse_sender = get_sse_sender()
+                
+                import asyncio
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # 既にイベントループが実行中の場合は、タスクを作成
+                    asyncio.create_task(sse_sender.send_complete(
+                        self.sse_session_id, 
+                        "すべてのタスクが完了しました"
+                    ))
+                else:
+                    # イベントループが実行されていない場合は、同期的に実行
+                    loop.run_until_complete(sse_sender.send_complete(
+                        self.sse_session_id, 
+                        "すべてのタスクが完了しました"
+                    ))
+            except Exception as e:
+                # SSE送信エラーはログに記録するが、処理は継続
+                import logging
+                logger = logging.getLogger("core.models")
+                logger.error(f"❌ [TaskChainManager] SSE complete send failed: {e}")
     
     def update_task_status(self, task_id: str, status: TaskStatus, result: Any = None, error: str = None) -> None:
         """Update task status and result."""

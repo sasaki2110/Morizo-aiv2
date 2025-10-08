@@ -109,17 +109,17 @@ class ResponseProcessor:
             
             # task4のWeb検索結果を取得
             web_recipes = []
-            if "task4" in results and results["task4"].get("success"):
-                web_data = results["task4"].get("result", {}).get("data", [])
+            if "task4" in results and results.get("task4", {}).get("success"):
+                web_data = results.get("task4", {}).get("result", {}).get("data", [])
                 web_recipes = web_data
             
             # task2とtask3の献立を取得
             llm_menu = {}
             rag_menu = {}
-            if "task2" in results and results["task2"].get("success"):
-                llm_menu = results["task2"].get("result", {}).get("data", {})
-            if "task3" in results and results["task3"].get("success"):
-                rag_menu = results["task3"].get("result", {}).get("data", {})
+            if "task2" in results and results.get("task2", {}).get("success"):
+                llm_menu = results.get("task2", {}).get("result", {}).get("data", {})
+            if "task3" in results and results.get("task3", {}).get("success"):
+                rag_menu = results.get("task3", {}).get("result", {}).get("data", {})
             
             # レスポンスを構築
             response_parts = []
@@ -140,17 +140,17 @@ class ResponseProcessor:
                 response_parts.append("")
             
             # Web検索結果（詳細分類対応）
-            if web_recipes:
+            if web_recipes and isinstance(web_recipes, dict):
                 response_parts.append("🌐 **レシピ検索結果**")
                 
                 # LLM献立の結果
                 llm_menu = web_recipes.get("llm_menu", {})
-                if any(llm_menu.values()):
+                if isinstance(llm_menu, dict) and any(llm_menu.values()):
                     response_parts.append("")
                     response_parts.append("🍽️ **LLM献立提案**")
                     
                     for category, data in llm_menu.items():
-                        if data.get("title") and data.get("recipes"):
+                        if isinstance(data, dict) and data.get("title") and data.get("recipes"):
                             category_emoji = {"main_dish": "🥩", "side_dish": "🥬", "soup": "🍲"}.get(category, "🍽️")
                             response_parts.append(f"{category_emoji} **{category.replace('_', ' ').title()}: {data['title']}**")
                             
@@ -162,12 +162,12 @@ class ResponseProcessor:
                 
                 # RAG献立の結果
                 rag_menu = web_recipes.get("rag_menu", {})
-                if any(rag_menu.values()):
+                if isinstance(rag_menu, dict) and any(rag_menu.values()):
                     response_parts.append("")
                     response_parts.append("🔍 **RAG献立提案**")
                     
                     for category, data in rag_menu.items():
-                        if data.get("title") and data.get("recipes"):
+                        if isinstance(data, dict) and data.get("title") and data.get("recipes"):
                             category_emoji = {"main_dish": "🥩", "side_dish": "🥬", "soup": "🍲"}.get(category, "🍽️")
                             response_parts.append(f"{category_emoji} **{category.replace('_', ' ').title()}: {data['title']}**")
                             

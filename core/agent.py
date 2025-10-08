@@ -30,7 +30,8 @@ class ResponseFormatter:
             response = await self.llm_service.format_response(execution_results)
             return response
         except Exception as e:
-            self.logger.error(f"Response formatting failed: {str(e)}")
+            logger = GenericLogger("core", "response_formatter")
+            logger.error(f"Response formatting failed: {str(e)}")
             return f"タスクが完了しましたが、レスポンスの生成に失敗しました: {str(e)}"
 
 
