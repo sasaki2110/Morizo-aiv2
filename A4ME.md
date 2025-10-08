@@ -21,6 +21,9 @@
 services/llm_service.py　
 services/recipe_service.py 等
 
-そして、task2 と task3 の並列動作を確認。
-
 そして、**TODOが残っていないか確認。**
+⇒一杯残ってる。。。
+
+SSEやら曖昧性やら。。。
+必要に応じて実装することにして、
+今はAPI層実装へ進もう。
