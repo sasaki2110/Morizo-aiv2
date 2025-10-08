@@ -141,7 +141,8 @@ class ActionPlanner:
         tasks = []
         
         for desc in descriptions:
-            task_id = str(uuid.uuid4())
+            # LLMが生成したtask1, task2形式のIDをそのまま使用
+            task_id = desc.get("id", f"task{len(tasks)+1}")
             service = desc.get("service")
             method = desc.get("method")
             parameters = desc.get("parameters", {})
@@ -163,24 +164,6 @@ class ActionPlanner:
     
     def _resolve_dependencies(self, tasks: List[Task]) -> List[Task]:
         """Resolve task dependencies and update dependency IDs."""
-        task_map = {task.id: task for task in tasks}
-        
-        for task in tasks:
-            resolved_deps = []
-            for dep_desc in task.dependencies:
-                # Find task that matches the dependency description
-                dep_task = self._find_dependency_task(dep_desc, tasks)
-                if dep_task:
-                    resolved_deps.append(dep_task.id)
-            
-            task.dependencies = resolved_deps
-        
+        # task1, task2形式のIDをそのまま使用するため、依存関係解決は不要
+        # LLMが既に正しい依存関係を生成している
         return tasks
-    
-    def _find_dependency_task(self, dep_desc: str, tasks: List[Task]) -> Task:
-        """Find task that matches dependency description."""
-        # Simple matching based on service and method
-        for task in tasks:
-            if f"{task.service}.{task.method}" in dep_desc:
-                return task
-        return None

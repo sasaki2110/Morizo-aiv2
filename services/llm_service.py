@@ -78,6 +78,12 @@ class LLMService:
 2. `inventory_service.get_inventory()` を呼び出し、追加後を含めた最新の在庫を取得する。
 3. `recipe_service.generate_menu_plan()` を呼び出し、ステップ2の結果を注入する。
 
+**パラメータ注入のルール**:
+- 先行タスクの結果を後続タスクのパラメータに注入する場合は、必ず `"先行タスク名.result"` 形式を使用してください。
+- 例: task1の結果をtask2で使用する場合 → `"inventory_items": "task1.result"`
+- 例: task2の結果をtask3で使用する場合 → `"some_param": "task2.result"`
+- この形式により、システムが自動的に先行タスクの結果を後続タスクに注入します。
+
 **曖昧な在庫操作の指示について**:
 - ユーザーが「古い方」「最新」などを明示しない限り、`update_inventory` や `delete_inventory` の `strategy` パラメータは `'by_name'` を指定してください。これにより、サービス層でユーザーへの確認プロセスが起動します。
 - 例: 「牛乳を削除して」 → `delete_inventory(item_identifier='牛乳', strategy='by_name')`
@@ -94,6 +100,29 @@ class LLMService:
             "method": "呼び出すメソッド名",
             "parameters": {{ "key": "value" }},
             "dependencies": []
+        }}
+    ]
+}}
+
+**パラメータ注入の具体例**:
+献立生成の場合:
+{{
+    "tasks": [
+        {{
+            "id": "task1",
+            "description": "現在の全在庫アイテムのリストを取得する",
+            "service": "inventory_service",
+            "method": "get_inventory",
+            "parameters": {{}},
+            "dependencies": []
+        }},
+        {{
+            "id": "task2",
+            "description": "在庫リストに基づき、最適な献立を提案する",
+            "service": "recipe_service",
+            "method": "generate_menu_plan",
+            "parameters": {{ "inventory_items": "task1.result", "user_id": "user123" }},
+            "dependencies": ["task1"]
         }}
     ]
 }}

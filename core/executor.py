@@ -172,11 +172,36 @@ class TaskExecutor:
         """Inject data from previous task results into parameters."""
         injected = parameters.copy()
         
-        for key, value in parameters.items():
-            if isinstance(value, str) and value.startswith("{{") and value.endswith("}}"):
-                # Extract task ID from template
-                task_id = value[2:-2].strip()
-                if task_id in previous_results:
-                    injected[key] = previous_results[task_id]
+        self.logger.info(f"🔍 [EXECUTOR] Starting data injection")
+        self.logger.info(f"🔍 [EXECUTOR] Parameters to inject: {parameters}")
+        self.logger.info(f"🔍 [EXECUTOR] Previous results keys: {list(previous_results.keys())}")
+        self.logger.info(f"🔍 [EXECUTOR] Previous results: {previous_results}")
         
+        for key, value in parameters.items():
+            self.logger.info(f"🔍 [EXECUTOR] Processing parameter: {key} = {value}")
+            
+            # task1.result 形式の処理
+            if isinstance(value, str) and value.endswith(".result"):
+                task_ref = value[:-7]  # "task1.result" -> "task1"
+                self.logger.info(f"🔍 [EXECUTOR] Found .result reference: {task_ref}")
+                
+                if task_ref in previous_results:
+                    self.logger.info(f"🔍 [EXECUTOR] Found task reference in previous_results: {task_ref}")
+                    # 在庫データから食材名リストを抽出
+                    inventory_data = previous_results[task_ref]
+                    self.logger.info(f"🔍 [EXECUTOR] Inventory data: {inventory_data}")
+                    
+                    if isinstance(inventory_data, dict) and inventory_data.get("success"):
+                        items = inventory_data.get("result", {}).get("data", [])
+                        item_names = [item.get("item_name") for item in items if item.get("item_name")]
+                        injected[key] = item_names
+                        self.logger.info(f"🔗 [EXECUTOR] Injected {len(item_names)} items from {task_ref} to {key}")
+                    else:
+                        self.logger.warning(f"⚠️ [EXECUTOR] Inventory data is not successful: {inventory_data}")
+                else:
+                    self.logger.warning(f"⚠️ [EXECUTOR] Task reference not found in previous_results: {task_ref}")
+            else:
+                self.logger.info(f"🔍 [EXECUTOR] Parameter {key} does not match .result pattern")
+        
+        self.logger.info(f"🔍 [EXECUTOR] Final injected parameters: {injected}")
         return injected
