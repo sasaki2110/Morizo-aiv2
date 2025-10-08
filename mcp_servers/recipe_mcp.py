@@ -198,38 +198,121 @@ async def search_menu_from_rag_with_history(
 
 
 @mcp.tool()
-async def search_recipe_from_web(recipe_title: str, num_results: int = 5, user_id: str = "", token: str = None) -> Dict[str, Any]:
+async def search_recipe_from_web(
+    recipe_titles: List[str], 
+    num_results: int = 5, 
+    user_id: str = "", 
+    token: str = None,
+    menu_categories: List[str] = None,
+    menu_source: str = "mixed"
+) -> Dict[str, Any]:
     """
-    Web検索によるレシピ検索
+    Web検索によるレシピ検索（複数料理名対応・並列実行・詳細分類）
     
     Args:
-        recipe_title: 検索するレシピタイトル
-        num_results: 取得する結果数
+        recipe_titles: 検索するレシピタイトルのリスト
+        num_results: 各料理名あたりの取得結果数
         user_id: ユーザーID（一貫性のため受け取るが使用しない）
         token: 認証トークン
+        menu_categories: 料理名の分類リスト（main_dish, side_dish, soup）
+        menu_source: 検索元（llm, rag, mixed）
     
     Returns:
-        Dict[str, Any]: 検索結果のレシピリスト
+        Dict[str, Any]: 分類された検索結果のレシピリスト
     """
-    logger.info(f"🔧 [RECIPE] Starting search_recipe_from_web for title: {recipe_title}, num_results: {num_results}")
+    logger.info(f"🔧 [RECIPE] Starting search_recipe_from_web for {len(recipe_titles)} titles: {recipe_titles}, num_results: {num_results}")
+    logger.info(f"📊 [RECIPE] Menu categories: {menu_categories}, source: {menu_source}")
     
     try:
-        # Web検索クライアントを使用
-        recipes = await search_client.search_recipes(recipe_title, num_results)
-        logger.info(f"🔍 [RECIPE] Web search completed, found {len(recipes)} recipes")
+        import asyncio
         
-        # レシピを優先順位でソート
-        prioritized_recipes = prioritize_recipes(recipes)
-        logger.info(f"📊 [RECIPE] Recipes prioritized")
+        async def search_single_recipe(title: str) -> Dict[str, Any]:
+            """単一の料理名でレシピ検索"""
+            try:
+                # Web検索クライアントを使用
+                recipes = await search_client.search_recipes(title, num_results)
+                logger.info(f"🔍 [RECIPE] Web search completed for '{title}', found {len(recipes)} recipes")
+                
+                # レシピを優先順位でソート
+                prioritized_recipes = prioritize_recipes(recipes)
+                logger.info(f"📊 [RECIPE] Recipes prioritized for '{title}'")
+                
+                # 結果をフィルタリング
+                filtered_recipes = filter_recipe_results(prioritized_recipes)
+                logger.info(f"🔍 [RECIPE] Recipes filtered for '{title}', final count: {len(filtered_recipes)}")
+                
+                return {
+                    "success": True,
+                    "data": filtered_recipes,
+                    "title": title,
+                    "count": len(filtered_recipes)
+                }
+                
+            except Exception as e:
+                logger.error(f"❌ [RECIPE] Error searching for '{title}': {e}")
+                return {
+                    "success": False,
+                    "error": str(e),
+                    "title": title,
+                    "count": 0
+                }
         
-        # 結果をフィルタリング
-        filtered_recipes = filter_recipe_results(prioritized_recipes)
-        logger.info(f"🔍 [RECIPE] Recipes filtered, final count: {len(filtered_recipes)}")
+        # 並列実行
+        tasks = [search_single_recipe(title) for title in recipe_titles]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # 結果を分類別に整理
+        categorized_results = {
+            "llm_menu": {
+                "main_dish": {"title": "", "recipes": []},
+                "side_dish": {"title": "", "recipes": []},
+                "soup": {"title": "", "recipes": []}
+            },
+            "rag_menu": {
+                "main_dish": {"title": "", "recipes": []},
+                "side_dish": {"title": "", "recipes": []},
+                "soup": {"title": "", "recipes": []}
+            }
+        }
+        
+        successful_searches = 0
+        
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error(f"❌ [RECIPE] Search failed for '{recipe_titles[i]}': {result}")
+                continue
+            elif result.get("success"):
+                recipes = result.get("data", [])
+                successful_searches += 1
+                logger.info(f"✅ [RECIPE] Found {len(recipes)} recipes for '{recipe_titles[i]}'")
+                
+                # 分類情報を取得
+                category = "main_dish"  # デフォルト
+                source = "llm_menu"     # デフォルト
+                
+                if menu_categories and i < len(menu_categories):
+                    category = menu_categories[i]
+                
+                # 検索元の判定（簡易版：インデックスベース）
+                if menu_source == "rag" or (menu_source == "mixed" and i >= len(recipe_titles) // 2):
+                    source = "rag_menu"
+                
+                # 結果を分類
+                categorized_results[source][category] = {
+                    "title": recipe_titles[i],
+                    "recipes": recipes
+                }
+            else:
+                logger.error(f"❌ [RECIPE] Search failed for '{recipe_titles[i]}': {result.get('error')}")
+        
+        logger.info(f"✅ [RECIPE] Recipe search completed: {successful_searches}/{len(recipe_titles)} successful")
         
         result = {
             "success": True,
-            "data": filtered_recipes,
-            "total_count": len(filtered_recipes)
+            "data": categorized_results,
+            "total_count": sum(len(cat["recipes"]) for menu in categorized_results.values() for cat in menu.values()),
+            "searches_completed": successful_searches,
+            "total_searches": len(recipe_titles)
         }
         
         logger.info(f"✅ [RECIPE] search_recipe_from_web completed successfully")

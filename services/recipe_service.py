@@ -71,73 +71,46 @@ class RecipeService:
         recipe_titles: List[str],
         num_results: int = 5,
         user_id: str = "",
-        token: str = ""
+        token: str = "",
+        menu_categories: List[str] = None,
+        menu_source: str = "mixed"
     ) -> Dict[str, Any]:
         """
-        Web検索によるレシピ検索（複数料理名対応・並列実行）
+        Web検索によるレシピ検索（複数料理名対応・並列実行・詳細分類）
         
         Args:
             recipe_titles: 検索するレシピタイトルのリスト
             num_results: 各料理名あたりの取得結果数
             user_id: ユーザーID（一貫性のため受け取るが使用しない）
             token: 認証トークン
+            menu_categories: 料理名の分類リスト（main_dish, side_dish, soup）
+            menu_source: 検索元（llm, rag, mixed）
         
         Returns:
-            統合された検索結果のレシピリスト
+            分類された検索結果のレシピリスト
         """
         try:
             self.logger.info(f"🔧 [RecipeService] Searching recipes for {len(recipe_titles)} titles: {recipe_titles}")
+            self.logger.info(f"📊 [RecipeService] Menu categories: {menu_categories}, source: {menu_source}")
             
-            # 並列でMCPツールを呼び出し
-            import asyncio
+            # ToolRouter経由でRecipeMCPツールを呼び出し（詳細分類対応）
+            result = await self.tool_router.route_tool(
+                "search_recipe_from_web",
+                {
+                    "recipe_titles": recipe_titles,
+                    "num_results": num_results,
+                    "menu_categories": menu_categories,
+                    "menu_source": menu_source
+                },
+                token
+            )
             
-            async def search_single_recipe(title: str) -> Dict[str, Any]:
-                """単一の料理名でレシピ検索"""
-                return await self.tool_router.route_tool(
-                    "search_recipe_from_web",
-                    {
-                        "recipe_title": title,
-                        "num_results": num_results
-                    },
-                    token
-                )
+            if result.get("success"):
+                self.logger.info(f"✅ [RecipeService] Recipe search completed successfully: {result.get('total_count', 0)} recipes found")
+            else:
+                self.logger.error(f"❌ [RecipeService] Recipe search failed: {result.get('error')}")
             
-            # 並列実行
-            tasks = [search_single_recipe(title) for title in recipe_titles]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # 結果を統合
-            all_recipes = []
-            successful_searches = 0
-            
-            for i, result in enumerate(results):
-                if isinstance(result, Exception):
-                    self.logger.error(f"❌ [RecipeService] Search failed for '{recipe_titles[i]}': {result}")
-                elif result.get("success"):
-                    recipes = result.get("data", [])
-                    all_recipes.extend(recipes)
-                    successful_searches += 1
-                    self.logger.info(f"✅ [RecipeService] Found {len(recipes)} recipes for '{recipe_titles[i]}'")
-                else:
-                    self.logger.error(f"❌ [RecipeService] Search failed for '{recipe_titles[i]}': {result.get('error')}")
-            
-            # 重複を除去（URLベース）
-            unique_recipes = []
-            seen_urls = set()
-            for recipe in all_recipes:
-                if recipe.get("url") not in seen_urls:
-                    unique_recipes.append(recipe)
-                    seen_urls.add(recipe.get("url"))
-            
-            self.logger.info(f"✅ [RecipeService] Recipe search completed: {successful_searches}/{len(recipe_titles)} successful, {len(unique_recipes)} unique recipes")
-            
-            return {
-                "success": True,
-                "data": unique_recipes,
-                "total_count": len(unique_recipes),
-                "searches_completed": successful_searches,
-                "total_searches": len(recipe_titles)
-            }
+            return result
             
         except Exception as e:
             self.logger.error(f"❌ [RecipeService] Error in search_recipes_from_web: {e}")

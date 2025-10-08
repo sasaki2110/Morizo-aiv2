@@ -145,7 +145,9 @@ class LLMService:
             "service": "recipe_service",
             "method": "search_recipes_from_web",
             "parameters": {{ 
-                "recipe_title": "task2.result.main_dish"
+                "recipe_titles": ["task2.result.main_dish", "task2.result.side_dish", "task3.result.main_dish", "task3.result.side_dish"],
+                "menu_categories": ["main_dish", "side_dish", "main_dish", "side_dish"],
+                "menu_source": "mixed"
             }},
             "dependencies": ["task2", "task3"]
         }}
@@ -402,14 +404,43 @@ class LLMService:
                 response_parts.append(f"汁物: {rag_menu.get('soup', 'N/A')}")
                 response_parts.append("")
             
-            # Web検索結果
+            # Web検索結果（詳細分類対応）
             if web_recipes:
                 response_parts.append("🌐 **レシピ検索結果**")
-                for i, recipe in enumerate(web_recipes[:3], 1):  # 上位3件のみ
-                    response_parts.append(f"{i}. {recipe.get('title', 'N/A')}")
-                    response_parts.append(f"   URL: {recipe.get('url', 'N/A')}")
-                    response_parts.append(f"   説明: {recipe.get('description', 'N/A')[:100]}...")
+                
+                # LLM献立の結果
+                llm_menu = web_recipes.get("llm_menu", {})
+                if any(llm_menu.values()):
                     response_parts.append("")
+                    response_parts.append("🍽️ **LLM献立提案**")
+                    
+                    for category, data in llm_menu.items():
+                        if data.get("title") and data.get("recipes"):
+                            category_emoji = {"main_dish": "🥩", "side_dish": "🥬", "soup": "🍲"}.get(category, "🍽️")
+                            response_parts.append(f"{category_emoji} **{category.replace('_', ' ').title()}: {data['title']}**")
+                            
+                            for i, recipe in enumerate(data["recipes"][:3], 1):  # 上位3件のみ
+                                response_parts.append(f"{i}. {recipe.get('title', 'N/A')}")
+                                response_parts.append(f"   URL: {recipe.get('url', 'N/A')}")
+                                response_parts.append(f"   説明: {recipe.get('description', 'N/A')[:100]}...")
+                                response_parts.append("")
+                
+                # RAG献立の結果
+                rag_menu = web_recipes.get("rag_menu", {})
+                if any(rag_menu.values()):
+                    response_parts.append("")
+                    response_parts.append("🔍 **RAG献立提案**")
+                    
+                    for category, data in rag_menu.items():
+                        if data.get("title") and data.get("recipes"):
+                            category_emoji = {"main_dish": "🥩", "side_dish": "🥬", "soup": "🍲"}.get(category, "🍽️")
+                            response_parts.append(f"{category_emoji} **{category.replace('_', ' ').title()}: {data['title']}**")
+                            
+                            for i, recipe in enumerate(data["recipes"][:3], 1):  # 上位3件のみ
+                                response_parts.append(f"{i}. {recipe.get('title', 'N/A')}")
+                                response_parts.append(f"   URL: {recipe.get('url', 'N/A')}")
+                                response_parts.append(f"   説明: {recipe.get('description', 'N/A')[:100]}...")
+                                response_parts.append("")
             
             if not response_parts:
                 return "タスクが完了しましたが、結果を取得できませんでした。"

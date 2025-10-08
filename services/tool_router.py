@@ -239,17 +239,21 @@ class ToolRouter:
         """
         mapped = parameters.copy()
         
-        # search_recipe_from_webツールの場合、recipe_titlesをrecipe_titleにマッピング
-        if tool_name == "search_recipe_from_web" and "recipe_titles" in mapped:
-            # recipe_titles（リスト）をrecipe_title（文字列）に変換
-            recipe_titles = mapped.pop("recipe_titles")
-            if isinstance(recipe_titles, list) and recipe_titles:
-                # リストの最初の要素をrecipe_titleとして使用
-                mapped["recipe_title"] = recipe_titles[0]
-                self.logger.info(f"🔧 [ToolRouter] Mapped recipe_titles to recipe_title: {recipe_titles[0]}")
-            else:
-                # 空のリストの場合は空文字列
-                mapped["recipe_title"] = ""
-                self.logger.info(f"🔧 [ToolRouter] Mapped empty recipe_titles to empty recipe_title")
+        # search_recipe_from_webツールの場合、recipe_titlesをそのまま渡す
+        if tool_name == "search_recipe_from_web":
+            # recipe_titlesが既にリスト形式で渡されている場合はそのまま使用
+            if "recipe_titles" in mapped:
+                recipe_titles = mapped["recipe_titles"]
+                if isinstance(recipe_titles, list):
+                    self.logger.info(f"🔧 [ToolRouter] Passing recipe_titles as-is: {len(recipe_titles)} titles")
+                else:
+                    # 単一の文字列が渡された場合はリストに変換
+                    mapped["recipe_titles"] = [recipe_titles]
+                    self.logger.info(f"🔧 [ToolRouter] Converted single recipe_title to list: {recipe_titles}")
+            elif "recipe_title" in mapped:
+                # 後方互換性のため、recipe_titleをrecipe_titlesに変換
+                recipe_title = mapped.pop("recipe_title")
+                mapped["recipe_titles"] = [recipe_title] if recipe_title else []
+                self.logger.info(f"🔧 [ToolRouter] Converted recipe_title to recipe_titles: {recipe_title}")
         
         return mapped
