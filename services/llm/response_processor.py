@@ -224,10 +224,11 @@ class ResponseProcessor:
         for storage, items in categories.items():
             storage_emoji = {"冷蔵庫": "🧊", "冷凍": "❄️", "常温": "🌡️"}.get(storage, "📦")
             response_parts.append(f"{storage_emoji} **{storage}**")
+            response_parts.append("")  # セクションタイトル後の空行
             for item in items:
                 expiry_info = f" (期限: {item['expiry_date']})" if item.get('expiry_date') else ""
                 response_parts.append(f"  • {item['item_name']}: {item['quantity']} {item['unit']}{expiry_info}")
-            response_parts.append("")
+            response_parts.append("")  # セクション終了後の空行
         
         return response_parts
     
@@ -238,10 +239,11 @@ class ResponseProcessor:
         
         response_parts = []
         response_parts.append(f"🍽️ **{title}**")
+        response_parts.append("")  # タイトル後の空行
         response_parts.append(f"主菜: {menu_data.get('main_dish', 'N/A')}")
         response_parts.append(f"副菜: {menu_data.get('side_dish', 'N/A')}")
         response_parts.append(f"汁物: {menu_data.get('soup', 'N/A')}")
-        response_parts.append("")
+        response_parts.append("")  # セクション終了後の空行
         
         return response_parts
     
@@ -249,6 +251,7 @@ class ResponseProcessor:
         """Web検索結果のフォーマット"""
         response_parts = []
         response_parts.append("🌐 **レシピ検索結果**")
+        response_parts.append("")  # タイトル後の空行
         
         try:
             # web_dataが辞書の場合、適切な部分を抽出
@@ -271,7 +274,7 @@ class ResponseProcessor:
                     response_parts.append(f"{i}. {title}")
                     response_parts.append(f"   URL: {url}")
                     response_parts.append(f"   説明: {description[:100]}...")
-                    response_parts.append("")
+                    response_parts.append("")  # 各レシピ項目後の空行
             else:
                 response_parts.append("レシピデータの形式が正しくありません。")
                 
@@ -285,6 +288,7 @@ class ResponseProcessor:
         """汎用結果のフォーマット"""
         response_parts = []
         response_parts.append(f"📊 **{service_method}の結果**")
+        response_parts.append("")  # タイトル後の空行
         
         if isinstance(data, list):
             response_parts.append(f"取得件数: {len(data)}件")
@@ -298,5 +302,5 @@ class ResponseProcessor:
         else:
             response_parts.append(f"結果: {str(data)[:200]}...")
         
-        response_parts.append("")
+        response_parts.append("")  # セクション終了後の空行
         return response_parts
