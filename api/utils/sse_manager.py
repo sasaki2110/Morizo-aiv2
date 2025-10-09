@@ -95,13 +95,16 @@ class SSESender:
         except Exception as e:
             self.logger.error(f"❌ [SSE] Failed to send progress: {e}")
     
-    async def send_complete(self, session_id: str, message: str):
+    async def send_complete(self, session_id: str, response_text: str):
         """完了メッセージを送信"""
         try:
             event_data = {
                 "type": "complete",
-                "message": message,
-                "timestamp": datetime.now().isoformat()
+                "message": "処理が完了しました",
+                "timestamp": datetime.now().isoformat(),
+                "result": {
+                    "response": response_text
+                }
             }
             
             await self._send_to_session(session_id, event_data)

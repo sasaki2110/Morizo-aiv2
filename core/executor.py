@@ -172,13 +172,8 @@ class TaskExecutor:
         """Inject data from previous task results into parameters (辞書構造対応版)."""
         injected = parameters.copy()
         
-        self.logger.info(f"🔍 [EXECUTOR] Starting data injection")
-        self.logger.info(f"🔍 [EXECUTOR] Parameters to inject: {parameters}")
-        self.logger.info(f"🔍 [EXECUTOR] Previous results keys: {list(previous_results.keys())}")
-        self.logger.info(f"🔍 [EXECUTOR] Previous results: {previous_results}")
         
         for key, value in parameters.items():
-            self.logger.info(f"🔍 [EXECUTOR] Processing parameter: {key} = {value}")
             
             if isinstance(value, str):
                 # 辞書フィールド参照: "task2.result.main_dish"
@@ -196,13 +191,10 @@ class TaskExecutor:
                 # 単一タスク結果参照: "task1.result"
                 elif value.endswith(".result"):
                     task_ref = value[:-7]  # "task1.result" -> "task1"
-                    self.logger.info(f"🔍 [EXECUTOR] Found .result reference: {task_ref}")
                     
                     if task_ref in previous_results:
-                        self.logger.info(f"🔍 [EXECUTOR] Found task reference in previous_results: {task_ref}")
                         # 在庫データから食材名リストを抽出
                         inventory_data = previous_results[task_ref]
-                        self.logger.info(f"🔍 [EXECUTOR] Inventory data: {inventory_data}")
                         
                         if isinstance(inventory_data, dict) and inventory_data.get("success"):
                             items = inventory_data.get("result", {}).get("data", [])
@@ -214,11 +206,11 @@ class TaskExecutor:
                     else:
                         self.logger.warning(f"⚠️ [EXECUTOR] Task reference not found in previous_results: {task_ref}")
                 else:
-                    self.logger.info(f"🔍 [EXECUTOR] Parameter {key} does not match .result pattern")
+                    # その他の文字列はそのまま保持
+                    pass
             
             elif isinstance(value, list):
                 # 🆕 リスト型パラメータの処理を追加
-                self.logger.info(f"🔍 [EXECUTOR] Processing list parameter: {key}")
                 resolved_list = []
                 
                 for item in value:
@@ -239,17 +231,16 @@ class TaskExecutor:
                         else:
                             # その他の文字列はそのまま
                             resolved_list.append(item)
-                            self.logger.info(f"🔍 [EXECUTOR] Keeping list item as-is: '{item}'")
                     else:
                         # 文字列以外はそのまま
                         resolved_list.append(item)
-                        self.logger.info(f"🔍 [EXECUTOR] Keeping non-string list item: {item}")
                 
                 injected[key] = resolved_list
                 self.logger.info(f"🔗 [EXECUTOR] Resolved list parameter '{key}' = {resolved_list}")
             
             else:
-                self.logger.info(f"🔍 [EXECUTOR] Parameter {key} is not a string or list, keeping original value")
+                # その他の型はそのまま保持
+                pass
         
         return injected
     
@@ -260,11 +251,9 @@ class TaskExecutor:
         task_id = parts[0]
         field_name = parts[2]  # main_dish, side_dish, soup
         
-        self.logger.info(f"🔍 [EXECUTOR] Extracting field '{field_name}' from task '{task_id}'")
         
         if task_id in previous_results:
             task_result = previous_results[task_id]
-            self.logger.info(f"🔍 [EXECUTOR] Task result: {task_result}")
             
             if isinstance(task_result, dict) and task_result.get("success"):
                 data = task_result.get("result", {}).get("data", {})
@@ -283,7 +272,6 @@ class TaskExecutor:
         field_refs = [ref.strip() for ref in value.split(",")]
         results = []
         
-        self.logger.info(f"🔍 [EXECUTOR] Extracting multiple fields: {field_refs}")
         
         for field_ref in field_refs:
             if ".result." in field_ref:
@@ -292,7 +280,8 @@ class TaskExecutor:
                     results.append(field_value)
                     self.logger.info(f"🔗 [EXECUTOR] Added field value: '{field_value}'")
                 else:
-                    self.logger.info(f"🔍 [EXECUTOR] Skipped empty field value for: '{field_ref}'")
+                    # 空文字列の場合はスキップ
+                    pass
         
         self.logger.info(f"🔗 [EXECUTOR] Final extracted values: {results}")
         return results

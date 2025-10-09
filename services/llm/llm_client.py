@@ -52,8 +52,8 @@ class LLMClient:
             
             self.logger.info(f"🔧 [LLMClient] Calling OpenAI API with model: {self.openai_model}")
             
-            # プロンプトとトークン数をログ出力（全文表示）
-            log_prompt_with_tokens(prompt, max_tokens=2000, logger_name="service.llm", show_full_prompt=True)
+            # プロンプトとトークン数をログ出力（5行省略表示）
+            log_prompt_with_tokens(prompt, max_tokens=2000, logger_name="service.llm")
             
             response = await self.openai_client.chat.completions.create(
                 model=self.openai_model,

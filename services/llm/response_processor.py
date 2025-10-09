@@ -188,9 +188,9 @@ class ResponseProcessor:
                         self.logger.error(f"❌ [ResponseProcessor] Error formatting generic result for task {task_id}: {e}")
                         response_parts.append(f"汎用データの処理中にエラーが発生しました: {str(e)}")
             
-            # レスポンスが空の場合はデフォルトメッセージ
+            # レスポンスが空の場合は適切な挨拶メッセージを返す
             if not response_parts:
-                return "タスクが完了しましたが、結果を取得できませんでした。"
+                return "こんにちは！何かお手伝いできることはありますか？"
             
             final_response = "\n".join(response_parts)
             self.logger.info(f"🔧 [ResponseProcessor] Final response: {final_response}")
