@@ -58,10 +58,51 @@ class TaskChainManager:
         self.total_steps = len(tasks)
         self.current_step = 0
         self.results = {}
+        
+        # 初期進捗送信（0/タスク数完了）
+        if self.sse_session_id and self.total_steps > 0:
+            # 最初のタスクの情報を使用
+            first_task = tasks[0]
+            task_name = self._get_task_display_name(first_task)
+            self.send_progress(first_task.id, "開始", f"{task_name}を開始します")
     
-    def pause_for_confirmation(self) -> None:
-        """Pause execution for user confirmation."""
-        self.is_paused = True
+    def _get_task_display_name(self, task: Task) -> str:
+        """Get a user-friendly display name for a task."""
+        # サービス名を正規化（小文字を大文字に変換）
+        normalized_service = self._normalize_service_name(task.service)
+        
+        service_method_map = {
+            "InventoryService": {
+                "get_inventory": "在庫リスト取得",
+                "add_inventory": "在庫追加",
+                "update_inventory": "在庫更新",
+                "delete_inventory": "在庫削除"
+            },
+            "RecipeService": {
+                "generate_menu_plan": "献立生成",
+                "search_recipes": "レシピ検索",
+                "search_recipes_from_web": "レシピ検索",
+                "search_menu_from_rag": "献立検索",
+                "get_recipe_details": "レシピ詳細取得"
+            },
+            "LLMService": {
+                "process_request": "AI処理",
+                "generate_response": "レスポンス生成"
+            }
+        }
+        
+        service_name = service_method_map.get(normalized_service, {}).get(task.method, f"{normalized_service}.{task.method}")
+        return service_name
+    
+    def _normalize_service_name(self, service_name: str) -> str:
+        """Normalize service name from lowercase to proper case."""
+        service_mapping = {
+            "inventory_service": "InventoryService",
+            "recipe_service": "RecipeService",
+            "llm_service": "LLMService",
+            "session_service": "SessionService"
+        }
+        return service_mapping.get(service_name, service_name)
     
     def resume_execution(self) -> None:
         """Resume execution after confirmation."""
@@ -75,8 +116,29 @@ class TaskChainManager:
                 from api.utils.sse_manager import get_sse_sender
                 sse_sender = get_sse_sender()
                 
-                # 進捗率を計算（現在のステップ / 総ステップ数）
+                # 詳細な進捗データを構築
                 progress_percentage = int((self.current_step / self.total_steps) * 100) if self.total_steps > 0 else 0
+                
+                # タスク名を取得（task_idが実際のタスクIDの場合）
+                task_display_name = task_id
+                if task_id in [task.id for task in self.tasks]:
+                    # 実際のタスクが見つかった場合
+                    actual_task = next(task for task in self.tasks if task.id == task_id)
+                    task_display_name = self._get_task_display_name(actual_task)
+                
+                progress_data = {
+                    "completed_tasks": self.current_step,
+                    "total_tasks": self.total_steps,
+                    "progress_percentage": progress_percentage,
+                    "current_task": f"{task_display_name}: {status}",
+                    "remaining_tasks": self.total_steps - self.current_step,
+                    "is_complete": self.current_step >= self.total_steps,
+                    "message": f"タスク {self.current_step}/{self.total_steps} 完了 - 進捗{progress_percentage}%"
+                }
+                
+                # デバッグ用ログ
+                self.logger.info(f"📊 [TaskChainManager] Sending progress: {task_display_name}: {status}")
+                self.logger.info(f"📊 [TaskChainManager] Progress data: {progress_data}")
                 
                 # 進捗メッセージを送信
                 import asyncio
@@ -85,15 +147,13 @@ class TaskChainManager:
                     # 既にイベントループが実行中の場合は、タスクを作成
                     asyncio.create_task(sse_sender.send_progress(
                         self.sse_session_id, 
-                        progress_percentage, 
-                        f"タスク {task_id}: {message}"
+                        progress_data
                     ))
                 else:
                     # イベントループが実行されていない場合は、同期的に実行
                     loop.run_until_complete(sse_sender.send_progress(
                         self.sse_session_id, 
-                        progress_percentage, 
-                        f"タスク {task_id}: {message}"
+                        progress_data
                     ))
             except Exception as e:
                 # SSE送信エラーはログに記録するが、処理は継続

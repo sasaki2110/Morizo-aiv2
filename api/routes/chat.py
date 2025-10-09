@@ -46,20 +46,13 @@ async def chat(request: ChatRequest, http_request: Request):
         # TrueReactAgentの初期化と実行
         agent = TrueReactAgent()
         
-        # SSE進捗表示の開始
-        sse_sender = get_sse_sender()
-        await sse_sender.send_progress(sse_session_id, 25, "リクエストを処理中...")
-        
-        # リクエストの処理
+        # リクエストの処理（TaskChainManagerが進捗送信を担当）
         response_text = await agent.process_request(
             request.message, 
             user_id,
             token=token,
-            sse_session_id=request.sse_session_id
+            sse_session_id=sse_session_id
         )
-        
-        # 進捗更新
-        await sse_sender.send_progress(sse_session_id, 75, "レスポンスを生成中...")
         
         # レスポンスの生成
         response = ChatResponse(

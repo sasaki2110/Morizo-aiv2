@@ -79,18 +79,29 @@ class SSESender:
         except Exception as e:
             self.logger.error(f"❌ [SSE] Failed to remove connection: {e}")
     
-    async def send_progress(self, session_id: str, progress: int, message: str):
+    async def send_progress(self, session_id: str, progress_data: Dict[str, Any]):
         """進捗メッセージを送信"""
         try:
             event_data = {
                 "type": "progress",
-                "progress": progress,
-                "message": message,
-                "timestamp": datetime.now().isoformat()
+                "sse_session_id": session_id,
+                "timestamp": datetime.now().isoformat(),
+                "message": progress_data.get("message", ""),
+                "progress": {
+                    "completed_tasks": progress_data.get("completed_tasks", 0),
+                    "total_tasks": progress_data.get("total_tasks", 0),
+                    "progress_percentage": progress_data.get("progress_percentage", 0),
+                    "current_task": progress_data.get("current_task", ""),
+                    "remaining_tasks": progress_data.get("remaining_tasks", 0),
+                    "is_complete": progress_data.get("is_complete", False)
+                }
             }
             
+            # デバッグ用ログ
+            self.logger.info(f"📊 [SSE] Progress message content: {event_data}")
+            
             await self._send_to_session(session_id, event_data)
-            self.logger.info(f"📊 [SSE] Sent progress {progress}% to session {session_id}")
+            self.logger.info(f"📊 [SSE] Sent progress {progress_data.get('progress_percentage', 0)}% to session {session_id}")
             
         except Exception as e:
             self.logger.error(f"❌ [SSE] Failed to send progress: {e}")

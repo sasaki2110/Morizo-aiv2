@@ -70,6 +70,7 @@ class TaskExecutor:
                 group_results = await self._execute_group(executable_group, user_id, all_results, task_chain_manager, token)
                 
                 # Process results
+                completed_count = 0
                 for task, result in zip(executable_group, group_results):
                     if isinstance(result, AmbiguityDetected):
                         # Ambiguity detected - interrupt execution
@@ -91,6 +92,20 @@ class TaskExecutor:
                         task.result = result
                         all_results[task.id] = result
                         task_chain_manager.update_task_status(task.id, TaskStatus.COMPLETED, result)
+                        completed_count += 1
+                
+                # 完了したタスク数分だけ進捗を更新
+                if completed_count > 0:
+                    task_chain_manager.current_step += completed_count
+                    
+                    # 完了したタスクの情報を使用
+                    completed_tasks = [task for task, result in zip(executable_group, group_results) 
+                                     if not isinstance(result, Exception) and not isinstance(result, AmbiguityDetected)]
+                    
+                    if completed_tasks:
+                        # 最初の完了タスクの情報を使用
+                        first_completed_task = completed_tasks[0]
+                        task_chain_manager.send_progress(first_completed_task.id, "完了", f"{completed_count}個のタスクが完了しました")
                 
                 # Remove completed tasks from remaining
                 completed_ids = [task.id for task in executable_group]
@@ -139,14 +154,14 @@ class TaskExecutor:
             task.status = TaskStatus.RUNNING
             task_chain_manager.update_task_status(task.id, TaskStatus.RUNNING)
             
-            coroutine = self._execute_single_task(task, user_id, previous_results, token)
+            coroutine = self._execute_single_task(task, user_id, previous_results, token, task_chain_manager)
             coroutines.append(coroutine)
         
         # Execute all tasks in parallel
         results = await asyncio.gather(*coroutines, return_exceptions=True)
         return results
     
-    async def _execute_single_task(self, task: Task, user_id: str, previous_results: Dict[str, Any], token: str) -> Any:
+    async def _execute_single_task(self, task: Task, user_id: str, previous_results: Dict[str, Any], token: str, task_chain_manager: TaskChainManager = None) -> Any:
         """Execute a single task with data injection."""
         try:
             self.logger.info(f"🚀 [EXECUTOR] Starting task {task.id}: {task.service}.{task.method}")
