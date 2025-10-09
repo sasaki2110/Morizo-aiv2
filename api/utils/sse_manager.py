@@ -8,7 +8,7 @@ Server-Sent Eventsの管理とメッセージ配信
 import asyncio
 import json
 import uuid
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from datetime import datetime
 from config.loggers import GenericLogger
 
@@ -95,18 +95,25 @@ class SSESender:
         except Exception as e:
             self.logger.error(f"❌ [SSE] Failed to send progress: {e}")
     
-    async def send_complete(self, session_id: str, response_text: str):
+    async def send_complete(self, session_id: str, response_text: str, menu_data: Optional[Dict[str, Any]] = None):
         """完了メッセージを送信"""
         try:
             event_data = {
                 "type": "complete",
-                "message": "処理が完了しました",
-                "timestamp": datetime.now().isoformat(),
                 "result": {
                     "response": response_text
                 }
             }
             
+            # menu_dataがある場合は追加
+            if menu_data:
+                event_data["result"]["menu_data"] = menu_data
+                self.logger.info(f"📊 [SSE] Menu data included in response: {len(str(menu_data))} characters")
+                self.logger.info(f"🔍 [SSE] Menu data preview: {str(menu_data)[:200]}...")
+            else:
+                self.logger.info(f"⚠️ [SSE] No menu data provided")
+            
+            # 実際の送信処理を追加
             await self._send_to_session(session_id, event_data)
             self.logger.info(f"✅ [SSE] Sent complete to session {session_id}")
             

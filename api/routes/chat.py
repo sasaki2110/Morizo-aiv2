@@ -54,7 +54,8 @@ async def chat(request: ChatRequest, http_request: Request):
         response_text = await agent.process_request(
             request.message, 
             user_id,
-            token=token
+            token=token,
+            sse_session_id=request.sse_session_id
         )
         
         # 進捗更新
@@ -68,8 +69,8 @@ async def chat(request: ChatRequest, http_request: Request):
             user_id=user_id
         )
         
-        # 完了通知（実際のレスポンス内容を送信）
-        await sse_sender.send_complete(sse_session_id, response_text)
+        # 完了通知はTaskChainManagerで送信されるため、ここでは送信しない
+        # await sse_sender.send_complete(sse_session_id, response_text)
         
         logger.info(f"✅ [API] Chat request completed for user: {user_id}")
         return response

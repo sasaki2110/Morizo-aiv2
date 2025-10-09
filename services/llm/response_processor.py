@@ -7,7 +7,7 @@ JSON解析、タスク形式変換、最終回答整形を担当
 """
 
 import json
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from config.loggers import GenericLogger
 
 
@@ -94,7 +94,7 @@ class ResponseProcessor:
             self.logger.error(f"❌ [ResponseProcessor] Error converting tasks: {e}")
             return []
     
-    def format_final_response(self, results: Dict[str, Any]) -> str:
+    def format_final_response(self, results: Dict[str, Any]) -> tuple[str, Optional[Dict[str, Any]]]:
         """
         最終回答整形（サービス・メソッドベース）
         
@@ -102,12 +102,13 @@ class ResponseProcessor:
             results: タスク実行結果辞書
         
         Returns:
-            整形された回答
+            (整形された回答, JSON形式のレシピデータ)
         """
         try:
             
             # レスポンスを構築
             response_parts = []
+            menu_data = None  # JSON形式のレシピデータ
             
             # サービス・メソッドベースの処理
             for task_id, task_result in results.items():
@@ -177,6 +178,8 @@ class ResponseProcessor:
                 elif service_method == "recipe_service.search_recipes_from_web":
                     try:
                         response_parts.extend(self._format_web_recipes(data))
+                        # JSON形式のレシピデータも生成
+                        menu_data = self._generate_menu_data_json(data)
                     except Exception as e:
                         self.logger.error(f"❌ [ResponseProcessor] Error formatting web recipes for task {task_id}: {e}")
                         response_parts.append(f"レシピ検索データの処理中にエラーが発生しました: {str(e)}")
@@ -190,17 +193,24 @@ class ResponseProcessor:
             
             # レスポンスが空の場合は適切な挨拶メッセージを返す
             if not response_parts:
-                return "こんにちは！何かお手伝いできることはありますか？"
+                return "こんにちは！何かお手伝いできることはありますか？", None
             
             final_response = "\n".join(response_parts)
             self.logger.info(f"🔧 [ResponseProcessor] Final response: {final_response}")
             self.logger.info(f"✅ [ResponseProcessor] Response formatted successfully")
             
-            return final_response
+            # JSON形式のレシピデータがある場合は、レスポンスに含める
+            if menu_data:
+                self.logger.info(f"📊 [ResponseProcessor] Menu data JSON generated: {len(str(menu_data))} characters")
+                self.logger.info(f"🔍 [ResponseProcessor] Menu data preview: {str(menu_data)[:200]}...")
+            else:
+                self.logger.info(f"⚠️ [ResponseProcessor] No menu data generated")
+            
+            return final_response, menu_data
             
         except Exception as e:
             self.logger.error(f"❌ [ResponseProcessor] Error in format_final_response: {e}")
-            return "タスクが完了しましたが、レスポンスの生成に失敗しました。"
+            return "タスクが完了しましたが、レスポンスの生成に失敗しました。", None
     
     def _format_inventory_list(self, inventory_data: List[Dict]) -> List[str]:
         """在庫一覧のフォーマット"""
@@ -304,3 +314,190 @@ class ResponseProcessor:
         
         response_parts.append("")  # セクション終了後の空行
         return response_parts
+    
+    def _generate_menu_data_json(self, web_data: Any) -> Optional[Dict[str, Any]]:
+        """
+        レシピデータをJSON形式に変換
+        
+        Args:
+            web_data: Web検索結果データ
+        
+        Returns:
+            仕様書に準拠したJSON形式のレシピデータ
+        """
+        try:
+            # Web検索結果の詳細ログを追加
+            self.logger.info(f"🔍 [ResponseProcessor] Web data type: {type(web_data)}")
+            self.logger.info(f"📊 [ResponseProcessor] Web data content: {json.dumps(web_data, ensure_ascii=False, indent=2)}")
+            
+            if not isinstance(web_data, dict):
+                self.logger.warning("⚠️ [ResponseProcessor] web_data is not a dict, skipping JSON generation")
+                return None
+            
+            # 仕様書の構造に合わせてデータを構築
+            menu_data = {
+                "innovative": {
+                    "title": "📝 斬新な提案",
+                    "recipes": {
+                        "main": [],
+                        "side": [],
+                        "soup": []
+                    }
+                },
+                "traditional": {
+                    "title": "📚 伝統的な提案",
+                    "recipes": {
+                        "main": [],
+                        "side": [],
+                        "soup": []
+                    }
+                }
+            }
+            
+            # llm_menu と rag_menu からレシピを抽出
+            for menu_type in ['llm_menu', 'rag_menu']:
+                if menu_type not in web_data:
+                    continue
+                    
+                menu = web_data[menu_type]
+                
+                # カテゴリ別に処理
+                for dish_type in ['main_dish', 'side_dish', 'soup']:
+                    if dish_type not in menu or 'recipes' not in menu[dish_type]:
+                        continue
+                        
+                    recipes = menu[dish_type]['recipes']
+                    if not recipes:
+                        continue
+                    
+                    # カテゴリマッピング
+                    category_map = {
+                        'main_dish': 'main',
+                        'side_dish': 'side',
+                        'soup': 'soup'
+                    }
+                    category = category_map.get(dish_type, 'main')
+                    
+                    # 絵文字マッピング
+                    emoji_map = {
+                        'main': '🍖',
+                        'side': '🥗',
+                        'soup': '🍵'
+                    }
+                    emoji = emoji_map.get(category, '🍽️')
+                    
+                    # レシピを変換（カテゴリ統合処理）
+                    category_urls = []  # カテゴリ全体のURLリスト
+                    
+                    for recipe in recipes[:2]:  # 最大2件まで
+                        urls = self._extract_recipe_urls(recipe)
+                        category_urls.extend(urls)  # 全URLを統合
+                    
+                    # カテゴリにURLがある場合は1つのレシピオブジェクトとして追加
+                    if category_urls:
+                        # カテゴリ名に基づいたタイトルを生成
+                        category_titles = {
+                            'main': '主菜のレシピ',
+                            'side': '副菜のレシピ', 
+                            'soup': '汁物のレシピ'
+                        }
+                        combined_title = category_titles.get(category, f'{category}のレシピ')
+                        
+                        combined_recipe = {
+                            "title": combined_title,
+                            "emoji": emoji,
+                            "category": category,
+                            "urls": category_urls
+                        }
+                        
+                        # innovative または traditional に分類
+                        target_section = self._classify_recipe(combined_recipe, menu_type)
+                        menu_data[target_section]["recipes"][category].append(combined_recipe)
+            
+            # 空のセクションをチェック
+            has_data = False
+            for section in ['innovative', 'traditional']:
+                for category in ['main', 'side', 'soup']:
+                    if menu_data[section]["recipes"][category]:
+                        has_data = True
+                        break
+            
+            if not has_data:
+                self.logger.warning("⚠️ [ResponseProcessor] No recipe data found for JSON generation")
+                return None
+            
+            # 生成されたmenu_dataの全文ログを追加
+            self.logger.info(f"📋 [ResponseProcessor] Generated menu_data: {json.dumps(menu_data, ensure_ascii=False, indent=2)}")
+            self.logger.info(f"✅ [ResponseProcessor] Menu data JSON generated successfully")
+            return menu_data
+            
+        except Exception as e:
+            self.logger.error(f"❌ [ResponseProcessor] Error generating menu data JSON: {e}")
+            return None
+    
+    def _extract_recipe_urls(self, recipe: Dict[str, Any]) -> List[Dict[str, str]]:
+        """
+        レシピからURL情報を抽出
+        
+        Args:
+            recipe: レシピデータ
+        
+        Returns:
+            URL情報のリスト
+        """
+        urls = []
+        
+        try:
+            # レシピのURL情報を抽出（実際の構造に応じて調整が必要）
+            if 'url' in recipe:
+                url = str(recipe['url'])
+                title = str(recipe.get('title', 'レシピ詳細'))
+                domain = self._extract_domain(url)
+                
+                urls.append({
+                    "title": title,
+                    "url": url,
+                    "domain": domain
+                })
+            
+            # 複数URLがある場合の処理（必要に応じて拡張）
+            
+        except Exception as e:
+            self.logger.error(f"❌ [ResponseProcessor] Error extracting recipe URLs: {e}")
+        
+        return urls
+    
+    def _extract_domain(self, url: str) -> str:
+        """
+        URLからドメイン名を抽出
+        
+        Args:
+            url: URL文字列
+        
+        Returns:
+            ドメイン名
+        """
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            return parsed.netloc
+        except Exception:
+            return "unknown"
+    
+    def _classify_recipe(self, recipe: Dict[str, Any], menu_type: str) -> str:
+        """
+        レシピをinnovativeまたはtraditionalに分類
+        
+        Args:
+            recipe: レシピデータ
+            menu_type: メニュータイプ（llm_menu または rag_menu）
+        
+        Returns:
+            'innovative' または 'traditional'
+        """
+        # 簡易的な分類ロジック
+        # llm_menu = innovative, rag_menu = traditional
+        if menu_type == 'llm_menu':
+            return 'innovative'
+        else:
+            return 'traditional'

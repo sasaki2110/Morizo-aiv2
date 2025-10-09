@@ -6,7 +6,7 @@ LLM呼び出しのコントロール専用サービス
 分割されたサブモジュールを使用してLLM機能を提供
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from config.loggers import GenericLogger
 from .llm.prompt_manager import PromptManager
 from .llm.response_processor import ResponseProcessor
@@ -77,7 +77,7 @@ class LLMService:
     async def format_response(
         self, 
         results: Dict[str, Any]
-    ) -> str:
+    ) -> tuple[str, Optional[Dict[str, Any]]]:
         """
         最終回答整形
         
@@ -85,9 +85,13 @@ class LLMService:
             results: タスク実行結果辞書 (task1, task2, task3, task4)
         
         Returns:
-            整形された回答
+            (整形された回答, JSON形式のレシピデータ)
         """
-        return self.response_processor.format_final_response(results)
+        response, menu_data = self.response_processor.format_final_response(results)
+        self.logger.info(f"🔍 [LLMService] Menu data received: {menu_data is not None}")
+        if menu_data:
+            self.logger.info(f"📊 [LLMService] Menu data size: {len(str(menu_data))} characters")
+        return response, menu_data
     
     async def solve_constraints(
         self, 

@@ -6,7 +6,7 @@ execution, and response generation.
 """
 
 import logging
-from typing import Optional
+from typing import Optional, Dict, Any
 from .models import TaskChainManager, ExecutionResult
 from .planner import ActionPlanner
 from .executor import TaskExecutor
@@ -23,16 +23,19 @@ class ResponseFormatter:
         self.logger = GenericLogger("core", "response_formatter")
         self.llm_service = LLMService()
     
-    async def format(self, execution_results: dict) -> str:
+    async def format(self, execution_results: dict) -> tuple[str, Optional[Dict[str, Any]]]:
         """Format execution results into natural language response."""
         try:
             # Use LLM service to format the response
-            response = await self.llm_service.format_response(execution_results)
-            return response
+            response, menu_data = await self.llm_service.format_response(execution_results)
+            self.logger.info(f"🔍 [ResponseFormatter] Menu data received: {menu_data is not None}")
+            if menu_data:
+                self.logger.info(f"📊 [ResponseFormatter] Menu data size: {len(str(menu_data))} characters")
+            return response, menu_data
         except Exception as e:
             logger = GenericLogger("core", "response_formatter")
             logger.error(f"Response formatting failed: {str(e)}")
-            return f"タスクが完了しましたが、レスポンスの生成に失敗しました: {str(e)}"
+            return f"タスクが完了しましたが、レスポンスの生成に失敗しました: {str(e)}", None
 
 
 class TrueReactAgent:
@@ -96,8 +99,11 @@ class TrueReactAgent:
             # Step 4: Format final response
             if execution_result.status == "success":
                 self.logger.info(f"📄 [AGENT] Starting response formatting...")
-                final_response = await self.response_formatter.format(execution_result.outputs)
-                task_chain_manager.send_complete(final_response)
+                final_response, menu_data = await self.response_formatter.format(execution_result.outputs)
+                self.logger.info(f"🔍 [TrueReactAgent] Menu data received: {menu_data is not None}")
+                if menu_data:
+                    self.logger.info(f"📊 [TrueReactAgent] Menu data size: {len(str(menu_data))} characters")
+                task_chain_manager.send_complete(final_response, menu_data)
                 self.logger.info(f"✅ [AGENT] Response formatting completed")
                 self.logger.info(f"🎉 [AGENT] Request processing completed successfully")
                 return final_response
@@ -147,8 +153,11 @@ class TrueReactAgent:
             self.logger.info(f"✅ [AGENT] Updated task execution completed: status={final_execution_result.status}")
             
             if final_execution_result.status == "success":
-                final_response = await self.response_formatter.format(final_execution_result.outputs)
-                task_chain_manager.send_complete(final_response)
+                final_response, menu_data = await self.response_formatter.format(final_execution_result.outputs)
+                self.logger.info(f"🔍 [TrueReactAgent] Confirmation Menu data received: {menu_data is not None}")
+                if menu_data:
+                    self.logger.info(f"📊 [TrueReactAgent] Confirmation Menu data size: {len(str(menu_data))} characters")
+                task_chain_manager.send_complete(final_response, menu_data)
                 self.logger.info(f"🎉 [AGENT] Confirmation handling completed successfully")
                 return final_response
             else:
