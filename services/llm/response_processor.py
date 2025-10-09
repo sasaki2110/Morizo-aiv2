@@ -110,6 +110,9 @@ class ResponseProcessor:
             response_parts = []
             menu_data = None  # JSON形式のレシピデータ
             
+            # 献立提案シナリオかどうかを判定
+            is_menu_scenario = self._is_menu_scenario(results)
+            
             # サービス・メソッドベースの処理
             for task_id, task_result in results.items():
                 
@@ -159,22 +162,16 @@ class ResponseProcessor:
                 
                 if service_method == "inventory_service.get_inventory":
                     try:
-                        response_parts.extend(self._format_inventory_list(data))
+                        response_parts.extend(self._format_inventory_list(data, is_menu_scenario))
                     except Exception as e:
                         self.logger.error(f"❌ [ResponseProcessor] Error formatting inventory list for task {task_id}: {e}")
                         response_parts.append(f"在庫データの処理中にエラーが発生しました: {str(e)}")
                 elif service_method == "recipe_service.generate_menu_plan":
-                    try:
-                        response_parts.extend(self._format_menu_plan(data, "LLM献立提案"))
-                    except Exception as e:
-                        self.logger.error(f"❌ [ResponseProcessor] Error formatting menu plan for task {task_id}: {e}")
-                        response_parts.append(f"献立データの処理中にエラーが発生しました: {str(e)}")
+                    # LLM献立提案は表示しない（Web検索結果のみ表示）
+                    pass
                 elif service_method == "recipe_service.search_menu_from_rag":
-                    try:
-                        response_parts.extend(self._format_menu_plan(data, "RAG献立提案"))
-                    except Exception as e:
-                        self.logger.error(f"❌ [ResponseProcessor] Error formatting RAG menu for task {task_id}: {e}")
-                        response_parts.append(f"RAG献立データの処理中にエラーが発生しました: {str(e)}")
+                    # RAG献立提案は表示しない（Web検索結果のみ表示）
+                    pass
                 elif service_method == "recipe_service.search_recipes_from_web":
                     try:
                         response_parts.extend(self._format_web_recipes(data))
@@ -212,12 +209,36 @@ class ResponseProcessor:
             self.logger.error(f"❌ [ResponseProcessor] Error in format_final_response: {e}")
             return "タスクが完了しましたが、レスポンスの生成に失敗しました。", None
     
-    def _format_inventory_list(self, inventory_data: List[Dict]) -> List[str]:
+    def _is_menu_scenario(self, results: Dict[str, Any]) -> bool:
+        """献立提案シナリオかどうかを判定"""
+        menu_services = [
+            "recipe_service.generate_menu_plan",
+            "recipe_service.search_menu_from_rag", 
+            "recipe_service.search_recipes_from_web"
+        ]
+        
+        for task_result in results.values():
+            service = task_result.get("service", "")
+            method = task_result.get("method", "")
+            service_method = f"{service}.{method}"
+            
+            if service_method in menu_services:
+                return True
+        
+        return False
+    
+    def _format_inventory_list(self, inventory_data: List[Dict], is_menu_scenario: bool = False) -> List[str]:
         """在庫一覧のフォーマット"""
         if not inventory_data:
             return []
         
         response_parts = []
+        
+        # 献立提案シナリオの場合は表示しない
+        if is_menu_scenario:
+            return []
+        
+        # 通常の在庫表示（詳細）
         response_parts.append("📋 **現在の在庫一覧**")
         response_parts.append(f"総アイテム数: {len(inventory_data)}個")
         response_parts.append("")
@@ -258,33 +279,79 @@ class ResponseProcessor:
         return response_parts
     
     def _format_web_recipes(self, web_data: Any) -> List[str]:
-        """Web検索結果のフォーマット"""
+        """Web検索結果のフォーマット（簡素化版）"""
         response_parts = []
-        response_parts.append("🌐 **レシピ検索結果**")
-        response_parts.append("")  # タイトル後の空行
         
         try:
-            # web_dataが辞書の場合、適切な部分を抽出
+            # web_dataが辞書の場合、献立提案のみを表示
             if isinstance(web_data, dict):
-                recipes = []
-                # llm_menu と rag_menu からレシピを抽出
-                for menu_type in ['llm_menu', 'rag_menu']:
-                    if menu_type in web_data:
-                        menu = web_data[menu_type]
-                        for dish_type in ['main_dish', 'side_dish', 'soup']:
-                            if dish_type in menu and 'recipes' in menu[dish_type]:
-                                recipes.extend(menu[dish_type]['recipes'])
-                
-                # 上位5件のみ表示
-                for i, recipe in enumerate(recipes[:5], 1):
-                    title = str(recipe.get('title', 'N/A'))
-                    url = str(recipe.get('url', 'N/A'))
-                    description = str(recipe.get('description', 'N/A'))
+                # 斬新な提案（LLM）
+                if 'llm_menu' in web_data:
+                    llm_menu = web_data['llm_menu']
+                    response_parts.append("🍽️ 斬新な提案")
+                    response_parts.append("")
                     
-                    response_parts.append(f"{i}. {title}")
-                    response_parts.append(f"   URL: {url}")
-                    response_parts.append(f"   説明: {description[:100]}...")
-                    response_parts.append("")  # 各レシピ項目後の空行
+                    # 主菜
+                    if 'main_dish' in llm_menu and llm_menu['main_dish']:
+                        main_dish = llm_menu['main_dish']
+                        if isinstance(main_dish, str):
+                            response_parts.append(f"主菜: {main_dish}")
+                        elif isinstance(main_dish, dict) and 'title' in main_dish:
+                            response_parts.append(f"主菜: {main_dish['title']}")
+                    
+                    # 副菜
+                    if 'side_dish' in llm_menu and llm_menu['side_dish']:
+                        side_dish = llm_menu['side_dish']
+                        if isinstance(side_dish, str):
+                            response_parts.append(f"副菜: {side_dish}")
+                        elif isinstance(side_dish, dict) and 'title' in side_dish:
+                            response_parts.append(f"副菜: {side_dish['title']}")
+                    
+                    # 汁物
+                    if 'soup' in llm_menu and llm_menu['soup']:
+                        soup = llm_menu['soup']
+                        if isinstance(soup, str):
+                            response_parts.append(f"汁物: {soup}")
+                        elif isinstance(soup, dict) and 'title' in soup:
+                            response_parts.append(f"汁物: {soup['title']}")
+                    else:
+                        response_parts.append("汁物:")
+                    
+                    response_parts.append("")
+                
+                # 伝統的な提案（RAG）
+                if 'rag_menu' in web_data:
+                    rag_menu = web_data['rag_menu']
+                    response_parts.append("🍽️ 伝統的な提案")
+                    response_parts.append("")
+                    
+                    # 主菜
+                    if 'main_dish' in rag_menu and rag_menu['main_dish']:
+                        main_dish = rag_menu['main_dish']
+                        if isinstance(main_dish, str):
+                            response_parts.append(f"主菜: {main_dish}")
+                        elif isinstance(main_dish, dict) and 'title' in main_dish:
+                            response_parts.append(f"主菜: {main_dish['title']}")
+                    
+                    # 副菜
+                    if 'side_dish' in rag_menu and rag_menu['side_dish']:
+                        side_dish = rag_menu['side_dish']
+                        if isinstance(side_dish, str):
+                            response_parts.append(f"副菜: {side_dish}")
+                        elif isinstance(side_dish, dict) and 'title' in side_dish:
+                            response_parts.append(f"副菜: {side_dish['title']}")
+                    
+                    # 汁物
+                    if 'soup' in rag_menu and rag_menu['soup']:
+                        soup = rag_menu['soup']
+                        if isinstance(soup, str):
+                            response_parts.append(f"汁物: {soup}")
+                        elif isinstance(soup, dict) and 'title' in soup:
+                            response_parts.append(f"汁物: {soup['title']}")
+                    else:
+                        response_parts.append("汁物:")
+                    
+                    response_parts.append("")
             else:
                 response_parts.append("レシピデータの形式が正しくありません。")
                 
@@ -293,6 +360,47 @@ class ResponseProcessor:
             response_parts.append("レシピデータの処理中にエラーが発生しました。")
         
         return response_parts
+    
+    def _extract_actual_menu_title(self, web_data: Dict, category: str, menu_type: str) -> str:
+        """実際の献立提案からタイトルを抽出"""
+        try:
+            # カテゴリマッピング
+            category_mapping = {
+                'main': 'main_dish',
+                'side': 'side_dish',
+                'soup': 'soup'
+            }
+            
+            # メニュータイプに応じてデータソースを決定
+            if menu_type == 'llm':
+                menu_source = 'llm_menu'
+            elif menu_type == 'rag':
+                menu_source = 'rag_menu'
+            else:
+                # mixedの場合、カテゴリに応じて決定
+                # 汁物もLLM/RAGの両方から取得する必要がある
+                if category in ['main', 'side', 'soup']:
+                    menu_source = 'llm_menu'  # 最初の3つ（main, side, soup）はLLM
+                else:
+                    menu_source = 'rag_menu'  # 次の3つ（main, side, soup）はRAG
+            
+            # 実際のタイトルを抽出
+            if menu_source in web_data:
+                menu_data = web_data[menu_source]
+                dish_key = category_mapping.get(category, category)
+                
+                if dish_key in menu_data:
+                    dish_data = menu_data[dish_key]
+                    if isinstance(dish_data, str):
+                        return dish_data
+                    elif isinstance(dish_data, dict) and 'title' in dish_data:
+                        return dish_data['title']
+            
+            return ""
+            
+        except Exception as e:
+            self.logger.error(f"❌ [ResponseProcessor] Error extracting actual menu title: {e}")
+            return ""
     
     def _format_generic_result(self, service_method: str, data: Any) -> List[str]:
         """汎用結果のフォーマット"""
@@ -395,13 +503,17 @@ class ResponseProcessor:
                     
                     # カテゴリにURLがある場合は1つのレシピオブジェクトとして追加
                     if category_urls:
-                        # カテゴリ名に基づいたタイトルを生成
-                        category_titles = {
-                            'main': '主菜のレシピ',
-                            'side': '副菜のレシピ', 
-                            'soup': '汁物のレシピ'
+                        # 実際の献立提案からタイトルを生成
+                        # menu_typeは 'llm_menu' または 'rag_menu' の文字列
+                        actual_menu_type = 'llm' if menu_type == 'llm_menu' else 'rag'
+                        actual_title = self._extract_actual_menu_title(web_data, category, actual_menu_type)
+                        category_labels = {
+                            'main': '主菜',
+                            'side': '副菜',
+                            'soup': '汁物'
                         }
-                        combined_title = category_titles.get(category, f'{category}のレシピ')
+                        category_label = category_labels.get(category, category)
+                        combined_title = f"{category_label}: {actual_title}" if actual_title else f"{category_label}:"
                         
                         combined_recipe = {
                             "title": combined_title,
