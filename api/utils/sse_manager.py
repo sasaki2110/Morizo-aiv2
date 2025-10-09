@@ -57,7 +57,8 @@ class SSESender:
             connection_id = str(uuid.uuid4())
             self._connections[session_id].append(queue)
             
-            self.logger.info(f"🔗 [SSE] Added connection {connection_id} to session {session_id}")
+            total_connections = len(self._connections[session_id])
+            self.logger.info(f"🔗 [SSE] Added connection {connection_id} to session {session_id} (total: {total_connections})")
             return connection_id
             
         except Exception as e:
@@ -72,7 +73,8 @@ class SSESender:
                 if self._connections[session_id]:
                     self._connections[session_id].pop(0)  # 簡易実装
                 
-                self.logger.info(f"🔌 [SSE] Removed connection from session {session_id}")
+                remaining_connections = len(self._connections[session_id])
+                self.logger.info(f"🔌 [SSE] Removed connection from session {session_id} (remaining: {remaining_connections})")
                 
         except Exception as e:
             self.logger.error(f"❌ [SSE] Failed to remove connection: {e}")
@@ -126,16 +128,23 @@ class SSESender:
     async def _send_to_session(self, session_id: str, event_data: dict):
         """セッション内の全接続にメッセージを送信"""
         if session_id not in self._connections:
+            self.logger.warning(f"⚠️ [SSE] Session {session_id} not found for message sending")
             return
         
         message = f"data: {json.dumps(event_data)}\n\n"
+        connection_count = len(self._connections[session_id])
         
         # 各接続にメッセージを送信
+        successful_sends = 0
         for queue in self._connections[session_id]:
             try:
                 await queue.put(message)
+                successful_sends += 1
             except Exception as e:
                 self.logger.error(f"❌ [SSE] Failed to send to queue: {e}")
+        
+        if successful_sends < connection_count:
+            self.logger.warning(f"⚠️ [SSE] Only {successful_sends}/{connection_count} connections received message for session {session_id}")
 
 
 # グローバルSSE送信者インスタンス

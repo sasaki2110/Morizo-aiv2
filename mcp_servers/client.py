@@ -71,6 +71,11 @@ class MCPClient:
     def verify_auth_token(self, token: str) -> bool:
         """認証トークンを検証"""
         try:
+            # 空トークンや無効なトークンのチェック
+            if not token or token.strip() == "":
+                self.logger.warning("⚠️ [MCP] Empty or invalid token provided")
+                return False
+            
             client = self.get_supabase_client()
             user = client.auth.get_user(token)
             is_valid = user is not None
@@ -113,8 +118,10 @@ class MCPClient:
         self.logger.debug(f"📝 [MCP] Parameters: {parameters}")
         
         try:
-            # 認証確認
-            if not self.verify_auth_token(token):
+            # 認証確認（空トークンの場合は警告して続行）
+            if not token or token.strip() == "":
+                self.logger.warning("⚠️ [MCP] No token provided, proceeding without authentication")
+            elif not self.verify_auth_token(token):
                 raise ValueError("Authentication failed")
             
             # ツール名から適切なサーバーを特定

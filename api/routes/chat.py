@@ -13,7 +13,6 @@ from typing import Dict, Any
 from config.loggers import GenericLogger
 from ..models import ChatRequest, ChatResponse, ProgressUpdate
 from ..utils.sse_manager import get_sse_sender
-from ..utils.auth_handler import get_auth_handler
 from core.agent import TrueReactAgent
 
 router = APIRouter()
@@ -21,7 +20,7 @@ logger = GenericLogger("api", "chat")
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, http_request: Request):
     """AIエージェントとの対話"""
     try:
         # リクエストボディの詳細ログ
@@ -30,17 +29,16 @@ async def chat(request: ChatRequest):
         logger.info(f"  Token: {'SET' if request.token else 'NOT SET'}")
         logger.info(f"  SSE Session ID: {request.sse_session_id if request.sse_session_id else 'NOT SET'}")
         
-        # 認証の確認（tokenが提供されている場合のみ）
-        user_info = None
-        if request.token:
-            auth_handler = get_auth_handler()
-            user_info = await auth_handler.verify_token(request.token)
-            if not user_info:
-                raise HTTPException(status_code=401, detail="認証が必要です")
-        else:
-            # tokenが提供されていない場合は、ミドルウェアで認証済みと仮定
-            # 実際のユーザー情報はrequest.stateから取得する必要がある
-            logger.info("🔍 [API] No token provided, assuming middleware authentication")
+        # ミドルウェアで認証済みのユーザー情報を取得
+        user_info = getattr(http_request.state, 'user_info', None)
+        user_id = user_info['user_id'] if user_info else "anonymous"
+        
+        # Authorizationヘッダーからトークンを取得
+        authorization = http_request.headers.get("Authorization")
+        token = authorization[7:] if authorization and authorization.startswith("Bearer ") else ""
+        
+        logger.info(f"🔍 [API] User info from middleware: {user_id}")
+        logger.info(f"🔍 [API] Token from Authorization header: {'SET' if token else 'NOT SET'}")
         
         # SSEセッションIDの生成（提供されていない場合）
         sse_session_id = request.sse_session_id or str(uuid.uuid4())
@@ -53,11 +51,10 @@ async def chat(request: ChatRequest):
         await sse_sender.send_progress(sse_session_id, 25, "リクエストを処理中...")
         
         # リクエストの処理
-        user_id = user_info["user_id"] if user_info else "anonymous"
         response_text = await agent.process_request(
             request.message, 
             user_id,
-            token=request.token
+            token=token
         )
         
         # 進捗更新
@@ -71,10 +68,10 @@ async def chat(request: ChatRequest):
             user_id=user_id
         )
         
-        # 完了通知
-        await sse_sender.send_complete(sse_session_id, "処理が完了しました")
+        # 完了通知（実際のレスポンス内容を送信）
+        await sse_sender.send_complete(sse_session_id, response_text)
         
-        logger.info(f"✅ [API] Chat request completed for user: {user_info['user_id']}")
+        logger.info(f"✅ [API] Chat request completed for user: {user_id}")
         return response
         
     except HTTPException:
@@ -96,19 +93,12 @@ async def stream_progress(sse_session_id: str, request: Request):
     try:
         logger.info(f"🔍 [API] SSE stream requested for session: {sse_session_id}")
         
-        # 認証の確認
-        auth_header = request.headers.get("Authorization")
-        if not auth_header:
+        # ミドルウェアで認証済みのユーザー情報を取得
+        user_info = getattr(request.state, 'user_info', None)
+        if not user_info:
             raise HTTPException(status_code=401, detail="認証が必要です")
         
-        auth_handler = get_auth_handler()
-        token = auth_handler.extract_token_from_header(auth_header)
-        if not token:
-            raise HTTPException(status_code=401, detail="無効な認証トークンです")
-        
-        user_info = await auth_handler.verify_token(token)
-        if not user_info:
-            raise HTTPException(status_code=401, detail="認証に失敗しました")
+        logger.info(f"🔍 [API] SSE stream authenticated for user: {user_info['user_id']}")
         
         # SSE接続の確立
         sse_sender = get_sse_sender()
@@ -121,23 +111,42 @@ async def stream_progress(sse_session_id: str, request: Request):
                 yield f"data: {_create_sse_event('connected', {'message': 'SSE接続が確立されました'})}\n\n"
                 
                 # メッセージループ
+                heartbeat_counter = 0
                 while True:
                     try:
                         # キューからメッセージを取得（タイムアウト付き）
                         if sse_session_id in sse_sender._connections and sse_sender._connections[sse_session_id]:
                             message = await asyncio.wait_for(
                                 sse_sender._connections[sse_session_id][0].get(), 
-                                timeout=1.0
+                                timeout=30.0  # 30秒に延長
                             )
                             yield message
+                            
+                            # 完了メッセージの場合は接続を終了
+                            try:
+                                import json
+                                message_data = json.loads(message.split('data: ')[1].strip())
+                                if message_data.get('type') == 'complete':
+                                    logger.info(f"🔚 [API] Processing complete, closing SSE connection for session: {sse_session_id}")
+                                    yield f"data: {_create_sse_event('close', {'message': 'Connection will close after completion'})}\n\n"
+                                    break
+                            except (json.JSONDecodeError, IndexError):
+                                # JSON解析エラーは無視
+                                pass
                         else:
                             # 接続が存在しない場合は終了
+                            logger.warning(f"⚠️ [API] SSE session {sse_session_id} not found, closing connection")
                             break
                     except asyncio.TimeoutError:
-                        # タイムアウト時は接続確認
+                        # タイムアウト時はハートビートを送信
+                        heartbeat_counter += 1
+                        logger.info(f"💓 [API] Sending heartbeat #{heartbeat_counter} to session: {sse_session_id}")
+                        yield f"data: {_create_sse_event('heartbeat', {'message': 'ping', 'counter': heartbeat_counter})}\n\n"
+                        
+                        # 接続状態を確認
                         if not sse_sender._connections.get(sse_session_id):
+                            logger.warning(f"⚠️ [API] SSE session {sse_session_id} disconnected, closing connection")
                             break
-                        continue
                     except Exception as e:
                         logger.error(f"❌ [API] SSE message error: {e}")
                         break
