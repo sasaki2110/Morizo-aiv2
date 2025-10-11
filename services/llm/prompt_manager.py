@@ -48,14 +48,26 @@ class PromptManager:
 
 - **session_service**: セッション管理サービス（通常は直接呼び出し不要）
 
-**最重要ルール: 献立生成の際のタスク構成**
+**最重要ルール: タスク生成の条件分岐**
 
-ユーザーの要求が「献立」や「レシピ」に関するものである場合、必ず以下の4段階のタスク構成を使用してください：
+1. **在庫操作のみの場合**: ユーザーの要求が「追加」「削除」「更新」「確認」等の在庫操作のみの場合、該当する在庫操作タスクのみを生成してください。
+   
+   **例**:
+   - 「ピーマンを４個追加して」→ `inventory_service.add_inventory()` のみ
+   - 「牛乳を削除して」→ `inventory_service.delete_inventory()` のみ  
+   - 「在庫を確認して」→ `inventory_service.get_inventory()` のみ
 
-1. **task1**: `inventory_service.get_inventory()` を呼び出し、現在の在庫をすべて取得する。
-2. **task2**: `recipe_service.generate_menu_plan()` を呼び出す。その際、ステップ1で取得した在庫情報を `inventory_items` パラメータに設定する。
-3. **task3**: `recipe_service.search_menu_from_rag()` を呼び出す。その際、ステップ1で取得した在庫情報を `inventory_items` パラメータに設定する。
-4. **task4**: `recipe_service.search_recipes_from_web()` を呼び出す。その際、ステップ2とステップ3の結果を適切に処理する。
+2. **献立生成の場合**: ユーザーの要求が「献立」「レシピ」「メニュー」等の献立提案に関する場合のみ、以下の4段階のタスク構成を使用してください：
+   
+   **例**:
+   - 「献立を教えて」→ 4段階タスク構成
+   - 「レシピを提案して」→ 4段階タスク構成
+   - 「在庫から作れるメニューは？」→ 4段階タスク構成
+
+   a. **task1**: `inventory_service.get_inventory()` を呼び出し、現在の在庫をすべて取得する。
+   b. **task2**: `recipe_service.generate_menu_plan()` を呼び出す。その際、ステップ1で取得した在庫情報を `inventory_items` パラメータに設定する。
+   c. **task3**: `recipe_service.search_menu_from_rag()` を呼び出す。その際、ステップ1で取得した在庫情報を `inventory_items` パラメータに設定する。
+   d. **task4**: `recipe_service.search_recipes_from_web()` を呼び出す。その際、ステップ2とステップ3の結果を適切に処理する。
 
 **並列実行の指示**: task2とtask3は並列で実行可能です。dependenciesにtask1のみを指定してください。
 

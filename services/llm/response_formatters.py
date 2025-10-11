@@ -17,57 +17,76 @@ class ResponseFormatters:
         """初期化"""
         self.logger = GenericLogger("service", "llm.response.formatters")
     
-    def format_inventory_list(self, inventory_data: List[Dict], is_menu_scenario: bool = False) -> List[str]:
+    def format_inventory_list(self, data: Dict, is_menu_scenario: bool = False) -> List[str]:
         """在庫一覧のフォーマット"""
-        if not inventory_data:
-            return []
-        
         response_parts = []
         
-        # 献立提案シナリオの場合は表示しない
-        if is_menu_scenario:
-            return []
-        
-        # 通常の在庫表示（詳細）
-        response_parts.append("📋 **現在の在庫一覧**")
-        response_parts.append(f"総アイテム数: {len(inventory_data)}個")
-        response_parts.append("")
-        
-        # アイテムをカテゴリ別に整理
-        categories = {}
-        for item in inventory_data:
-            storage = item.get('storage_location', 'その他')
-            if storage not in categories:
-                categories[storage] = []
-            categories[storage].append(item)
-        
-        # カテゴリ別に表示
-        for storage, items in categories.items():
-            storage_emoji = STORAGE_EMOJI_MAP.get(storage, "📦")
-            response_parts.append(f"{storage_emoji} **{storage}**")
-            response_parts.append("")  # セクションタイトル後の空行
-            for item in items:
-                expiry_info = f" (期限: {item['expiry_date']})" if item.get('expiry_date') else ""
-                response_parts.append(f"  • {item['item_name']}: {item['quantity']} {item['unit']}{expiry_info}")
-            response_parts.append("")  # セクション終了後の空行
-        
-        return response_parts
+        # 修正: success判定を追加
+        if isinstance(data, dict) and data.get("success"):
+            # 成功時: dataから在庫データを取得
+            inventory_data = data.get("data", [])
+            
+            if not inventory_data:
+                return []
+            
+            # 献立提案シナリオの場合は表示しない
+            if is_menu_scenario:
+                return []
+            
+            # 通常の在庫表示（詳細）
+            response_parts.append("📋 **現在の在庫一覧**")
+            response_parts.append(f"総アイテム数: {len(inventory_data)}個")
+            response_parts.append("")
+            
+            # アイテムをカテゴリ別に整理
+            categories = {}
+            for item in inventory_data:
+                storage = item.get('storage_location', 'その他')
+                if storage not in categories:
+                    categories[storage] = []
+                categories[storage].append(item)
+            
+            # カテゴリ別に表示
+            for storage, items in categories.items():
+                storage_emoji = STORAGE_EMOJI_MAP.get(storage, "📦")
+                response_parts.append(f"{storage_emoji} **{storage}**")
+                response_parts.append("")  # セクションタイトル後の空行
+                for item in items:
+                    expiry_info = f" (期限: {item['expiry_date']})" if item.get('expiry_date') else ""
+                    response_parts.append(f"  • {item['item_name']}: {item['quantity']} {item['unit']}{expiry_info}")
+                response_parts.append("")  # セクション終了後の空行
+            
+            return response_parts
+        else:
+            # エラー時の表示
+            error_msg = data.get("error", "不明なエラー") if isinstance(data, dict) else "不明なエラー"
+            response_parts.append("❌ **在庫一覧の取得に失敗しました**")
+            response_parts.append("")
+            response_parts.append(f"エラー: {error_msg}")
+            response_parts.append("")
+            response_parts.append("もう一度お試しください。")
+            
+            return response_parts
     
     def format_web_recipes(self, web_data: Any) -> List[str]:
         """Web検索結果のフォーマット（簡素化版）"""
         response_parts = []
         
         try:
-            # web_dataが辞書の場合、献立提案のみを表示
-            if isinstance(web_data, dict):
+            # 修正: success判定を追加
+            if isinstance(web_data, dict) and web_data.get("success"):
+                # 成功時: dataからllm_menuとrag_menuを取得
+                data = web_data.get("data", {})
+                
                 # 斬新な提案（LLM）
-                if 'llm_menu' in web_data:
-                    response_parts.extend(self.format_llm_menu(web_data['llm_menu']))
+                if 'llm_menu' in data:
+                    response_parts.extend(self.format_llm_menu(data['llm_menu']))
                 
                 # 伝統的な提案（RAG）
-                if 'rag_menu' in web_data:
-                    response_parts.extend(self.format_rag_menu(web_data['rag_menu']))
+                if 'rag_menu' in data:
+                    response_parts.extend(self.format_rag_menu(data['rag_menu']))
             else:
+                # エラー時またはデータ形式エラー
                 response_parts.append("レシピデータの形式が正しくありません。")
                 
         except Exception as e:
@@ -156,4 +175,101 @@ class ResponseFormatters:
             response_parts.append(f"結果: {str(data)[:200]}...")
         
         response_parts.append("")  # セクション終了後の空行
+        return response_parts
+    
+    def format_inventory_add(self, data: Dict) -> List[str]:
+        """在庫追加のフォーマット"""
+        response_parts = []
+        
+        # デバッグログ: 受信データの構造を確認
+        self.logger.info(f"🔍 [DEBUG] format_inventory_add received data: {data}")
+        self.logger.info(f"🔍 [DEBUG] data type: {type(data)}")
+        self.logger.info(f"🔍 [DEBUG] data keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
+        
+        # 修正: success判定を追加
+        if isinstance(data, dict) and data.get("success"):
+            # 成功時の表示
+            self.logger.info(f"🔍 [DEBUG] Success branch executed")
+            item_data = data.get("data", {})
+            self.logger.info(f"🔍 [DEBUG] item_data: {item_data}")
+            item_name = item_data.get("item_name", "アイテム")
+            quantity = item_data.get("quantity", 0)
+            unit = item_data.get("unit", "個")
+            storage = item_data.get("storage_location", "冷蔵庫")
+            
+            response_parts.append("✅ **在庫を追加しました**")
+            response_parts.append("")
+            response_parts.append(f"📦 **{item_name}**: {quantity}{unit}")
+            response_parts.append(f"📍 **保管場所**: {storage}")
+            
+            if item_data.get("expiry_date"):
+                response_parts.append(f"📅 **賞味期限**: {item_data['expiry_date']}")
+            
+            response_parts.append("")
+            response_parts.append("在庫に正常に追加されました。")
+        else:
+            # エラー時の表示
+            self.logger.info(f"🔍 [DEBUG] Error branch executed")
+            error_msg = data.get("error", "不明なエラー") if isinstance(data, dict) else "不明なエラー"
+            self.logger.info(f"🔍 [DEBUG] error_msg: {error_msg}")
+            response_parts.append("❌ **在庫の追加に失敗しました**")
+            response_parts.append("")
+            response_parts.append(f"エラー: {error_msg}")
+            response_parts.append("")
+            response_parts.append("もう一度お試しください。")
+        
+        return response_parts
+    
+    def format_inventory_update(self, data: Dict) -> List[str]:
+        """在庫更新のフォーマット"""
+        response_parts = []
+        
+        # 修正: success判定を追加
+        if isinstance(data, dict) and data.get("success"):
+            # 成功時の表示
+            item_data = data.get("data", {})
+            item_name = item_data.get("item_name", "アイテム")
+            quantity = item_data.get("quantity", 0)
+            unit = item_data.get("unit", "個")
+            
+            response_parts.append("✅ **在庫を更新しました**")
+            response_parts.append("")
+            response_parts.append(f"📦 **{item_name}**: {quantity}{unit}")
+            response_parts.append("")
+            response_parts.append("在庫情報が正常に更新されました。")
+        else:
+            # エラー時の表示
+            error_msg = data.get("error", "不明なエラー") if isinstance(data, dict) else "不明なエラー"
+            response_parts.append("❌ **在庫の更新に失敗しました**")
+            response_parts.append("")
+            response_parts.append(f"エラー: {error_msg}")
+            response_parts.append("")
+            response_parts.append("もう一度お試しください。")
+        
+        return response_parts
+    
+    def format_inventory_delete(self, data: Dict) -> List[str]:
+        """在庫削除のフォーマット"""
+        response_parts = []
+        
+        # 修正: success判定を追加
+        if isinstance(data, dict) and data.get("success"):
+            # 成功時の表示
+            item_data = data.get("data", {})
+            item_name = item_data.get("item_name", "アイテム")
+            
+            response_parts.append("✅ **在庫を削除しました**")
+            response_parts.append("")
+            response_parts.append(f"🗑️ **{item_name}** を在庫から削除しました。")
+            response_parts.append("")
+            response_parts.append("在庫から正常に削除されました。")
+        else:
+            # エラー時の表示
+            error_msg = data.get("error", "不明なエラー") if isinstance(data, dict) else "不明なエラー"
+            response_parts.append("❌ **在庫の削除に失敗しました**")
+            response_parts.append("")
+            response_parts.append(f"エラー: {error_msg}")
+            response_parts.append("")
+            response_parts.append("もう一度お試しください。")
+        
         return response_parts

@@ -34,20 +34,24 @@ class MenuDataGenerator:
             self.logger.info(f"🔍 [MenuDataGenerator] Web data type: {type(web_data)}")
             self.logger.info(f"📊 [MenuDataGenerator] Web data content: {json.dumps(web_data, ensure_ascii=False, indent=2)}")
             
-            if not isinstance(web_data, dict):
-                self.logger.warning("⚠️ [MenuDataGenerator] web_data is not a dict, skipping JSON generation")
+            # 修正: success判定を追加
+            if not isinstance(web_data, dict) or not web_data.get("success"):
+                self.logger.warning("⚠️ [MenuDataGenerator] web_data is not successful, skipping JSON generation")
                 return None
+            
+            # 成功時: dataからllm_menuとrag_menuを取得
+            data = web_data.get("data", {})
             
             # メニュー構造を構築
             menu_data = self.build_menu_structure()
             
             # llm_menu と rag_menu からレシピを抽出
             for menu_type in ['llm_menu', 'rag_menu']:
-                if menu_type not in web_data:
+                if menu_type not in data:
                     continue
                     
-                menu = web_data[menu_type]
-                self.extract_recipes_by_type(menu, menu_type, menu_data, web_data)
+                menu = data[menu_type]
+                self.extract_recipes_by_type(menu, menu_type, menu_data, data)
             
             # 空のセクションをチェック
             if not self.has_menu_data(menu_data):

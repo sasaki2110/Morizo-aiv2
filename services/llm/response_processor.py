@@ -151,8 +151,13 @@ class ResponseProcessor:
                 service_method = f"{service}.{method}"
                 
                 # データの取得
+                self.logger.info(f"🔍 [DEBUG] task_result: {task_result}")
+                self.logger.info(f"🔍 [DEBUG] task_result type: {type(task_result)}")
+                self.logger.info(f"🔍 [DEBUG] task_result keys: {list(task_result.keys()) if isinstance(task_result, dict) else 'Not a dict'}")
                 result_value = task_result.get("result", {})
-                data = result_value.get("data", []) if isinstance(result_value, dict) else []
+                self.logger.info(f"🔍 [DEBUG] result_value: {result_value}")
+                data = result_value if isinstance(result_value, dict) else {}
+                self.logger.info(f"🔍 [DEBUG] data: {data}")
                 
                 # サービス・メソッド別の処理
                 parts, menu = self._process_service_method(service_method, data, is_menu_scenario, task_id)
@@ -187,6 +192,20 @@ class ResponseProcessor:
         try:
             if service_method == "inventory_service.get_inventory":
                 response_parts.extend(self.formatters.format_inventory_list(data, is_menu_scenario))
+                
+            elif service_method == "inventory_service.add_inventory":
+                # デバッグログ: サービスメソッドとデータを確認
+                self.logger.info(f"🔍 [DEBUG] Processing inventory_service.add_inventory")
+                self.logger.info(f"🔍 [DEBUG] service_method: {service_method}")
+                self.logger.info(f"🔍 [DEBUG] data: {data}")
+                self.logger.info(f"🔍 [DEBUG] data type: {type(data)}")
+                response_parts.extend(self.formatters.format_inventory_add(data))
+                
+            elif service_method == "inventory_service.update_inventory":
+                response_parts.extend(self.formatters.format_inventory_update(data))
+                
+            elif service_method == "inventory_service.delete_inventory":
+                response_parts.extend(self.formatters.format_inventory_delete(data))
                 
             elif service_method == "recipe_service.generate_menu_plan":
                 # LLM献立提案は表示しない（Web検索結果のみ表示）
