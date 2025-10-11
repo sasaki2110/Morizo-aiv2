@@ -158,6 +158,82 @@ class InventoryCRUD:
         except Exception as e:
             self.logger.error(f"❌ [CRUD] Failed to delete item by ID: {e}")
             return {"success": False, "error": str(e)}
+    
+    async def update_item_by_name_with_ambiguity_check(
+        self, 
+        client: Client, 
+        user_id: str, 
+        item_name: str, 
+        quantity: Optional[int] = None,
+        unit: Optional[str] = None,
+        storage_location: Optional[str] = None,
+        expiry_date: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """名前指定での在庫アイテム更新（曖昧性チェック付き）"""
+        try:
+            self.logger.info(f"🔍 [CRUD] Searching items by name for ambiguity check: {item_name}")
+            
+            # 1. 名前でアイテムを検索
+            result = client.table("inventory").select("*").eq("user_id", user_id).eq("item_name", item_name).execute()
+            
+            if not result.data:
+                return {"success": False, "error": f"Item '{item_name}' not found"}
+            
+            items = result.data
+            
+            # 2. 曖昧性チェック
+            if len(items) == 1:
+                # 1件の場合は直接更新
+                item_id = items[0]["id"]
+                self.logger.info(f"✅ [CRUD] Single item found, updating directly: {item_id}")
+                
+                # 更新データを準備
+                update_data = {}
+                if quantity is not None:
+                    update_data["quantity"] = quantity
+                if unit is not None:
+                    update_data["unit"] = unit
+                if storage_location is not None:
+                    update_data["storage_location"] = storage_location
+                if expiry_date is not None:
+                    update_data["expiry_date"] = expiry_date
+                
+                # 更新実行
+                update_result = client.table("inventory").update(update_data).eq("user_id", user_id).eq("id", item_id).execute()
+                
+                if update_result.data:
+                    self.logger.info(f"✅ [CRUD] Item updated successfully")
+                    return {"success": True, "data": update_result.data[0]}
+                else:
+                    return {"success": False, "error": "Update failed"}
+            
+            else:
+                # 複数件の場合は曖昧性エラーを返す
+                self.logger.warning(f"⚠️ [CRUD] Multiple items found ({len(items)}), ambiguity detected")
+                
+                # アイテム情報を整理
+                items_info = []
+                for item in items:
+                    items_info.append({
+                        "id": item["id"],
+                        "quantity": item["quantity"],
+                        "unit": item["unit"],
+                        "storage_location": item["storage_location"],
+                        "expiry_date": item["expiry_date"],
+                        "created_at": item["created_at"]
+                    })
+                
+                return {
+                    "success": False,
+                    "error": "AMBIGUITY_DETECTED",
+                    "message": f"在庫が複数あるため更新できません。最新の、一番古い、全部などを指定し、更新対象を特定して頂きたいです。",
+                    "items": items_info,
+                    "count": len(items)
+                }
+                
+        except Exception as e:
+            self.logger.error(f"❌ [CRUD] Failed to update item with ambiguity check: {e}")
+            return {"success": False, "error": str(e)}
 
 
 if __name__ == "__main__":

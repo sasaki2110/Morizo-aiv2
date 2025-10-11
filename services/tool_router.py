@@ -130,13 +130,29 @@ class ToolRouter:
                     "method": method
                 }
             
-            # 2. ログ出力
+            # 2. strategy判定ロジック（inventory_service.update_inventoryの場合のみ）
+            if service == "inventory_service" and method == "update_inventory":
+                strategy = parameters.get("strategy", "by_id")
+                
+                if strategy == "by_name_latest":
+                    tool_name = "inventory_update_by_name_latest"
+                elif strategy == "by_name_oldest":
+                    tool_name = "inventory_update_by_name_oldest"
+                elif strategy == "by_name":  # 全部処理
+                    tool_name = "inventory_update_by_name"
+                elif strategy == "by_name_with_ambiguity_check":  # 曖昧性チェック付き
+                    tool_name = "inventory_update_by_name_with_ambiguity_check"
+                # by_idの場合は元のtool_name（inventory_update_by_id）を使用
+                
+                self.logger.info(f"🔧 [ToolRouter] Strategy '{strategy}' → tool: {tool_name}")
+            
+            # 3. ログ出力
             self.logger.info(f"🔧 [ToolRouter] Routing service method: {service}.{method} → {tool_name}")
             
-            # 3. 既存のroute_toolメソッドを使用してMCPツールを実行
+            # 4. 既存のroute_toolメソッドを使用してMCPツールを実行
             result = await self.route_tool(tool_name, parameters, token)
             
-            # 4. 結果にサービス情報を追加
+            # 5. 結果にサービス情報を追加
             if isinstance(result, dict):
                 result["service"] = service
                 result["method"] = method
@@ -187,6 +203,8 @@ class ToolRouter:
                     descriptions[tool_name] = "名前指定での最古アイテム更新（FIFO原則）"
                 elif tool_name == "inventory_update_by_name_latest":
                     descriptions[tool_name] = "名前指定での最新アイテム更新"
+                elif tool_name == "inventory_update_by_name_with_ambiguity_check":
+                    descriptions[tool_name] = "名前指定での在庫アイテム更新（曖昧性チェック付き）"
                 elif tool_name == "inventory_delete_by_id":
                     descriptions[tool_name] = "指定したIDの在庫アイテムを削除"
                 elif tool_name == "inventory_delete_by_name":
@@ -238,6 +256,24 @@ class ToolRouter:
             マッピングされたパラメータ
         """
         mapped = parameters.copy()
+        
+        # inventory系ツールの場合、item_identifierをitem_nameにマッピング
+        if tool_name.startswith("inventory_"):
+            if "item_identifier" in mapped:
+                mapped["item_name"] = mapped.pop("item_identifier")
+                self.logger.info(f"🔧 [ToolRouter] Mapped item_identifier to item_name: {mapped['item_name']}")
+            
+            # updatesパラメータを展開
+            if "updates" in mapped:
+                updates = mapped.pop("updates")
+                if isinstance(updates, dict):
+                    mapped.update(updates)
+                    self.logger.info(f"🔧 [ToolRouter] Expanded updates: {updates}")
+            
+            # strategyパラメータを削除（ツールには不要）
+            if "strategy" in mapped:
+                mapped.pop("strategy")
+                self.logger.info(f"🔧 [ToolRouter] Removed strategy parameter")
         
         # search_recipe_from_webツールの場合、recipe_titlesをそのまま渡す
         if tool_name == "search_recipe_from_web":

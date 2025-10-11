@@ -228,23 +228,87 @@ class ResponseFormatters:
         if isinstance(data, dict) and data.get("success"):
             # 成功時の表示
             item_data = data.get("data", {})
-            item_name = item_data.get("item_name", "アイテム")
-            quantity = item_data.get("quantity", 0)
-            unit = item_data.get("unit", "個")
             
-            response_parts.append("✅ **在庫を更新しました**")
-            response_parts.append("")
-            response_parts.append(f"📦 **{item_name}**: {quantity}{unit}")
-            response_parts.append("")
-            response_parts.append("在庫情報が正常に更新されました。")
+            # 複数件の更新結果に対応
+            if isinstance(item_data, list):
+                # 複数件の場合
+                response_parts.append("✅ **在庫を更新しました**")
+                response_parts.append("")
+                response_parts.append(f"📦 **更新件数**: {len(item_data)}件")
+                response_parts.append("")
+                
+                # 各アイテムの情報を表示
+                for i, item in enumerate(item_data, 1):
+                    if isinstance(item, dict):
+                        item_name = item.get("item_name", "アイテム")
+                        quantity = item.get("quantity", 0)
+                        unit = item.get("unit", "個")
+                        response_parts.append(f"{i}. **{item_name}**: {quantity}{unit}")
+                
+                response_parts.append("")
+                response_parts.append("在庫情報が正常に更新されました。")
+            else:
+                # 単一アイテムの場合（既存の処理）
+                item_name = item_data.get("item_name", "アイテム")
+                quantity = item_data.get("quantity", 0)
+                unit = item_data.get("unit", "個")
+                
+                response_parts.append("✅ **在庫を更新しました**")
+                response_parts.append("")
+                response_parts.append(f"📦 **{item_name}**: {quantity}{unit}")
+                response_parts.append("")
+                response_parts.append("在庫情報が正常に更新されました。")
         else:
             # エラー時の表示
             error_msg = data.get("error", "不明なエラー") if isinstance(data, dict) else "不明なエラー"
-            response_parts.append("❌ **在庫の更新に失敗しました**")
-            response_parts.append("")
-            response_parts.append(f"エラー: {error_msg}")
-            response_parts.append("")
-            response_parts.append("もう一度お試しください。")
+            
+            # AMBIGUITY_DETECTEDエラーの特別処理
+            if error_msg == "AMBIGUITY_DETECTED":
+                message = data.get("message", "在庫が複数あるため更新できません。")
+                items = data.get("items", [])
+                count = data.get("count", 0)
+                
+                response_parts.append("⚠️ **在庫の更新について**")
+                response_parts.append("")
+                response_parts.append(message)
+                response_parts.append("")
+                
+                if items:
+                    response_parts.append("**現在の在庫:**")
+                    for i, item in enumerate(items, 1):
+                        quantity = item.get("quantity", 0)
+                        unit = item.get("unit", "個")
+                        storage_location = item.get("storage_location", "")
+                        expiry_date = item.get("expiry_date", "")
+                        created_at = item.get("created_at", "")
+                        
+                        # 日付のフォーマット
+                        if created_at:
+                            try:
+                                from datetime import datetime
+                                dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                                created_str = dt.strftime("%m/%d")
+                            except:
+                                created_str = created_at[:10] if len(created_at) >= 10 else created_at
+                        else:
+                            created_str = "不明"
+                        
+                        response_parts.append(f"{i}. {quantity}{unit} - {storage_location} (作成: {created_str})")
+                        if expiry_date:
+                            response_parts.append(f"   賞味期限: {expiry_date}")
+                
+                response_parts.append("")
+                response_parts.append("**選択肢:**")
+                response_parts.append("- 「最新の○○を変えて」")
+                response_parts.append("- 「一番古い○○を変えて」")
+                response_parts.append("- 「全部の○○を変えて」")
+            else:
+                # 通常のエラー処理
+                response_parts.append("❌ **在庫の更新に失敗しました**")
+                response_parts.append("")
+                response_parts.append(f"エラー: {error_msg}")
+                response_parts.append("")
+                response_parts.append("もう一度お試しください。")
         
         return response_parts
     
