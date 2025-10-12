@@ -119,7 +119,7 @@ class RecipeSearchEngine:
                     
                     # レシピの食材部分を抽出
                     parts = content.split(' | ')
-                    recipe_ingredients = parts[1] if len(parts) > 1 else ""
+                    recipe_ingredients = parts[0] if len(parts) > 0 else ""
                     
                     # 部分マッチングスコアを計算
                     match_score, matched_ingredients = self._calculate_match_score(
