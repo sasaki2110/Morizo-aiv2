@@ -121,7 +121,7 @@ class MenuDataGenerator:
             # レシピを変換（カテゴリ統合処理）
             category_urls = []  # カテゴリ全体のURLリスト
             
-            for recipe in recipes[:2]:  # 最大2件まで
+            for recipe in recipes[:3]:  # 最大3件まで
                 urls = self.extract_recipe_urls(recipe)
                 category_urls.extend(urls)  # 全URLを統合
             

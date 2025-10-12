@@ -169,7 +169,8 @@ class PromptManager:
             "parameters": {{ 
                 "recipe_titles": ["task2.result.main_dish", "task2.result.side_dish", "task2.result.soup", "task3.result.main_dish", "task3.result.side_dish", "task3.result.soup"],
                 "menu_categories": ["main_dish", "side_dish", "soup", "main_dish", "side_dish", "soup"],
-                "menu_source": "mixed"
+                "menu_source": "mixed",
+                "num_results": 3
             }},
             "dependencies": ["task2", "task3"]
         }}
