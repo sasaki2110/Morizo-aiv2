@@ -239,6 +239,17 @@ async def inventory_update_by_name_with_ambiguity_check(
 
 
 @mcp.tool()
+async def inventory_delete_by_name_with_ambiguity_check(
+    user_id: str,
+    item_name: str,
+    token: str = ""
+) -> Dict[str, Any]:
+    """名前指定での在庫アイテム削除（曖昧性チェック付き）"""
+    client = get_authenticated_client(user_id, token)
+    return await crud.delete_item_by_name_with_ambiguity_check(client, user_id, item_name)
+
+
+@mcp.tool()
 async def inventory_delete_by_name(user_id: str, item_name: str, token: str = "") -> Dict[str, Any]:
     """名前指定での在庫アイテム一括削除"""
     client = get_authenticated_client(user_id, token)

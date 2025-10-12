@@ -234,6 +234,63 @@ class InventoryCRUD:
         except Exception as e:
             self.logger.error(f"❌ [CRUD] Failed to update item with ambiguity check: {e}")
             return {"success": False, "error": str(e)}
+    
+    async def delete_item_by_name_with_ambiguity_check(
+        self, 
+        client: Client, 
+        user_id: str, 
+        item_name: str
+    ) -> Dict[str, Any]:
+        """名前指定での在庫アイテム削除（曖昧性チェック付き）"""
+        try:
+            self.logger.info(f"🔍 [CRUD] Searching items by name for ambiguity check: {item_name}")
+            
+            # 1. 名前でアイテムを検索
+            result = client.table("inventory").select("*").eq("user_id", user_id).eq("item_name", item_name).execute()
+            
+            if not result.data:
+                return {"success": False, "error": "No items found"}
+            
+            items = result.data
+            
+            if len(items) == 1:
+                # 2. 1件のみの場合は直接削除
+                item_id = items[0]["id"]
+                delete_result = client.table("inventory").delete().eq("user_id", user_id).eq("id", item_id).execute()
+                
+                self.logger.info(f"✅ [CRUD] Single item deleted: {item_id}")
+                return {"success": True, "data": delete_result.data[0]}
+            else:
+                # 3. 複数件の場合は曖昧性エラー
+                items_info = []
+                for item in items:
+                    items_info.append({
+                        "id": item["id"],
+                        "item_name": item["item_name"],
+                        "quantity": item["quantity"],
+                        "unit": item["unit"],
+                        "storage_location": item["storage_location"],
+                        "expiry_date": item["expiry_date"],
+                        "created_at": item["created_at"]
+                    })
+                
+                return {
+                    "success": False,
+                    "status": "ambiguity_detected",
+                    "error": "AMBIGUITY_DETECTED",
+                    "message": f"在庫が複数あるため削除できません。最新の、一番古い、全部などを指定し、削除対象を特定して頂きたいです。",
+                    "items": items_info,
+                    "count": len(items),
+                    "context": {
+                        "items": items_info,
+                        "count": len(items),
+                        "operation": "delete"
+                    }
+                }
+                
+        except Exception as e:
+            self.logger.error(f"❌ [CRUD] Failed to delete item with ambiguity check: {e}")
+            return {"success": False, "error": str(e)}
 
 
 if __name__ == "__main__":

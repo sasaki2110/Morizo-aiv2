@@ -319,21 +319,58 @@ class ResponseFormatters:
         # 修正: success判定を追加
         if isinstance(data, dict) and data.get("success"):
             # 成功時の表示
-            item_data = data.get("data", {})
-            item_name = item_data.get("item_name", "アイテム")
+            deleted_items = data.get("data", [])
             
-            response_parts.append("✅ **在庫を削除しました**")
-            response_parts.append("")
-            response_parts.append(f"🗑️ **{item_name}** を在庫から削除しました。")
-            response_parts.append("")
-            response_parts.append("在庫から正常に削除されました。")
+            if isinstance(deleted_items, list) and len(deleted_items) > 0:
+                # 複数件削除の場合
+                item_name = deleted_items[0].get("item_name", "アイテム")
+                count = len(deleted_items)
+                
+                response_parts.append("✅ **在庫を削除しました**")
+                response_parts.append("")
+                response_parts.append(f"🗑️ **{item_name}** を{count}件削除しました。")
+                response_parts.append("")
+                response_parts.append("在庫から正常に削除されました。")
+            else:
+                # 単一件削除の場合（従来の処理）
+                item_data = deleted_items if isinstance(deleted_items, dict) else {}
+                item_name = item_data.get("item_name", "アイテム")
+                
+                response_parts.append("✅ **在庫を削除しました**")
+                response_parts.append("")
+                response_parts.append(f"🗑️ **{item_name}** を在庫から削除しました。")
+                response_parts.append("")
+                response_parts.append("在庫から正常に削除されました。")
         else:
             # エラー時の表示
             error_msg = data.get("error", "不明なエラー") if isinstance(data, dict) else "不明なエラー"
-            response_parts.append("❌ **在庫の削除に失敗しました**")
-            response_parts.append("")
-            response_parts.append(f"エラー: {error_msg}")
-            response_parts.append("")
-            response_parts.append("もう一度お試しください。")
+            
+            # AMBIGUITY_DETECTEDエラーの特別処理
+            if error_msg == "AMBIGUITY_DETECTED":
+                message = data.get("message", "在庫が複数あるため削除できません。")
+                items = data.get("items", [])
+                count = data.get("count", 0)
+                
+                response_parts.append("⚠️ **在庫の削除について**")
+                response_parts.append("")
+                response_parts.append(message)
+                response_parts.append("")
+                
+                if items:
+                    response_parts.append("**現在の在庫:**")
+                    for i, item in enumerate(items, 1):
+                        response_parts.append(f"{i}. **{item.get('item_name', 'アイテム')}**")
+                        response_parts.append(f"   - 数量: {item.get('quantity', 0)}{item.get('unit', '')}")
+                        response_parts.append(f"   - 保存場所: {item.get('storage_location', '未設定')}")
+                        response_parts.append(f"   - 期限: {item.get('expiry_date', '未設定')}")
+                        response_parts.append("")
+                
+                response_parts.append("削除対象を特定するため、「最新の」「一番古い」「全部」などを指定してください。")
+            else:
+                response_parts.append("❌ **在庫の削除に失敗しました**")
+                response_parts.append("")
+                response_parts.append(f"エラー: {error_msg}")
+                response_parts.append("")
+                response_parts.append("もう一度お試しください。")
         
         return response_parts

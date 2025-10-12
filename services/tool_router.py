@@ -146,13 +146,29 @@ class ToolRouter:
                 
                 self.logger.info(f"🔧 [ToolRouter] Strategy '{strategy}' → tool: {tool_name}")
             
-            # 3. ログ出力
+            # 3. strategy判定ロジック（inventory_service.delete_inventoryの場合）
+            if service == "inventory_service" and method == "delete_inventory":
+                strategy = parameters.get("strategy", "by_id")
+                
+                if strategy == "by_name_latest":
+                    tool_name = "inventory_delete_by_name_latest"
+                elif strategy == "by_name_oldest":
+                    tool_name = "inventory_delete_by_name_oldest"
+                elif strategy == "by_name":  # 全部処理
+                    tool_name = "inventory_delete_by_name"
+                elif strategy == "by_name_with_ambiguity_check":  # 曖昧性チェック付き
+                    tool_name = "inventory_delete_by_name_with_ambiguity_check"
+                # by_idの場合は元のtool_name（inventory_delete_by_id）を使用
+                
+                self.logger.info(f"🔧 [ToolRouter] Strategy '{strategy}' → tool: {tool_name}")
+            
+            # 4. ログ出力
             self.logger.info(f"🔧 [ToolRouter] Routing service method: {service}.{method} → {tool_name}")
             
-            # 4. 既存のroute_toolメソッドを使用してMCPツールを実行
+            # 5. 既存のroute_toolメソッドを使用してMCPツールを実行
             result = await self.route_tool(tool_name, parameters, token)
             
-            # 5. 結果にサービス情報を追加
+            # 6. 結果にサービス情報を追加
             if isinstance(result, dict):
                 result["service"] = service
                 result["method"] = method
