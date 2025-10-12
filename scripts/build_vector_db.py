@@ -44,7 +44,11 @@ SEASONING_KEYWORDS = [
     # 香辛料
     'わさび', 'からし', 'しょうが', 'にんにく', 'ねぎ', 'みつば', 'しそ', '大葉',
     # その他
-    '片栗粉', '小麦粉', 'パン粉', 'ベーキングパウダー', '重曹'
+    '片栗粉', '小麦粉', 'パン粉', 'ベーキングパウダー', '重曹',
+    # 追加の調味料
+    '薄力粉', 'グラニュー糖', '中華スープのもと', '白ワイン', '赤ワイン',
+    '一味唐辛子', '鶏がらスープの素', '鶏がらスープのもと', '鶏がらスープ',
+    'ウェイパー', '合わせ調味料'
 ]
 
 def load_recipe_data(file_path: str) -> List[Dict[str, Any]]:
@@ -177,6 +181,16 @@ def preprocess_recipes(recipes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 }
             }
             
+            # デバッグ出力（最初の10件のみ）
+            if i < 10:
+                print(f"=== レシピ {i+1} の処理 ===")
+                print(f"タイトル: {recipe_info['title']}")
+                print(f"元の食材テキスト: {recipe_info['ingredients_text'][:200]}...")
+                print(f"正規化後食材: {ingredients}")
+                print(f"結合テキスト: {combined_text}")
+                print(f"ベクトル化対象: {processed_recipe['combined_text']}")
+                print()
+            
             processed_recipes.append(processed_recipe)
             
         except Exception as e:
@@ -202,16 +216,16 @@ def normalize_ingredients(ingredients_text: str) -> List[str]:
     # 基本的な正規化
     ingredients = []
     
-    # 改行やスペースで分割
-    lines = ingredients_text.split('\n')
-    for line in lines:
-        line = line.strip()
-        if not line:
+    # スペースで分割（改行ではなく）
+    parts = ingredients_text.split()
+    for part in parts:
+        part = part.strip()
+        if not part:
             continue
             
         # 食材名を抽出（分量情報を除去）
-        # 例: "牛乳50cc" → "牛乳"
-        ingredient = extract_ingredient_name(line)
+        # 例: "◎牛乳50ｃｃ（67ｃｃ）" → "牛乳"
+        ingredient = extract_ingredient_name(part)
         if ingredient:
             ingredients.append(ingredient)
     
@@ -225,25 +239,64 @@ def normalize_ingredients(ingredients_text: str) -> List[str]:
 
 def extract_ingredient_name(ingredient_line: str) -> str:
     """
-    食材行から食材名を抽出する
+    食材行から食材名を抽出する（改善版）
     
     Args:
-        ingredient_line: 食材行（例: "牛乳50cc"）
+        ingredient_line: 食材行（例: "◎牛乳50ｃｃ（67ｃｃ）"）
         
     Returns:
         食材名（例: "牛乳"）
     """
-    # 基本的な抽出ロジック
-    # 数字や単位を除去
     import re
     
-    # 数字と単位を除去
-    ingredient = re.sub(r'\d+[a-zA-Z]*', '', ingredient_line)
-    ingredient = re.sub(r'[（）()]', '', ingredient)
+    # より慎重なノイズ除去
+    ingredient = ingredient_line
+    
+    # 1. 括弧内の内容を除去（分量情報）
+    ingredient = re.sub(r'[（(][^）)]*[）)]', '', ingredient)
+    
+    # 2. 数字と単位を除去
+    ingredient = re.sub(r'\d+[a-zA-Zａ-ｚＡ-Ｚ]*', '', ingredient)
+    
+    # 3. 記号を除去
+    ingredient = re.sub(r'[◎★●※【】]', '', ingredient)
+    
+    # 4. よくあるノイズ語を除去
+    noise_words = [
+        '小さじ', '大さじ', '大匙', '小匙', '約', '適量', '適宜', '少々', '少量',
+        'お好みにより', '好みで', 'なんでも', 'または', 'ＯＫ', '好きなだけ',
+        'カット', 'カップ', '切れ', '切り', '位', '丁', '㏄', '㌘', 'グラム',
+        '㎝', 'ｍｌ', 'センチ', 'チューブ', 'パック', '缶缶', 'でも', 'くらい',
+        'たっぷり', 'あるもの', 'あれば', 'なくても', '何でも', '無くても可',
+        'OK', '各', '又は', 'など', 'ほど', 'ふり', 'ひとつまみ', '握り',
+        '人分', '人数分', '半分', '私は', 'タップリ', '×', '一', '○',
+        # 追加の単位
+        '本', '節', '袋', '個', '枚', '束', '滴', '片', 'かけ', 'カケ',
+        # 追加の不要語
+        '仕上げ', '黄金比率の煮汁', '大なら', '小なら', '大きめ', 'コ', '大'
+    ]
+    
+    for word in noise_words:
+        ingredient = ingredient.replace(word, '')
+    
+    # 5. 余分な記号を除去（改善）
+    ingredient = re.sub(r'[～/／・！？▲✿◆☆）））]', '', ingredient)
+    
+    # 6. 複数食材の結合を防止（新規追加）
+    # 「・」で分割して最初の食材のみを取得
+    if '・' in ingredient:
+        ingredient = ingredient.split('・')[0]
+    
+    # 7. 文字化けの修正（新規追加）
+    ingredient = re.sub(r'[ｸﾞﾗﾑ]', '', ingredient)
+    
     ingredient = ingredient.strip()
     
-    # 空文字列や短すぎる場合は除外
-    if len(ingredient) < 2:
+    # デバッグ出力を追加
+    print(f"extract_ingredient_name: '{ingredient_line}' → '{ingredient}'")
+    
+    # 空文字列のみ除外
+    if len(ingredient) == 0:
         return ''
     
     return ingredient
@@ -270,7 +323,7 @@ def filter_seasonings(ingredients: List[str]) -> List[str]:
 
 def create_combined_text(title: str, ingredients: List[str], category: str) -> str:
     """
-    ベクトル化用の結合テキストを作成する（食材のみ）
+    ベクトル化用の結合テキストを作成する（食材のみ）（改善版）
     
     Args:
         title: レシピタイトル（使用しない）
@@ -280,11 +333,29 @@ def create_combined_text(title: str, ingredients: List[str], category: str) -> s
     Returns:
         食材のみの結合テキスト
     """
+    # デバッグ出力
+    print(f"create_combined_text 呼び出し:")
+    print(f"  タイトル: {title}")
+    print(f"  食材リスト: {ingredients}")
+    print(f"  分類: {category}")
+    
+    # 食材リストの前処理（新規追加）
+    cleaned_ingredients = []
+    for ingredient in ingredients:
+        # 不要な文字を除去
+        cleaned = ingredient.strip()
+        # 空文字列や不要な文字のみの場合は除外
+        if cleaned and cleaned not in ['）', '））', '仕上げ', '黄金比率の煮汁']:
+            cleaned_ingredients.append(cleaned)
+    
     # 食材リストを文字列に変換（調味料は既に除外済み）
-    ingredients_str = ' '.join(ingredients)
+    ingredients_str = ' '.join(cleaned_ingredients)
     
     # 余分なスペースを除去
     ingredients_str = ' '.join(ingredients_str.split())
+    
+    print(f"  結合結果: {ingredients_str}")
+    print()
     
     return ingredients_str
 
@@ -299,8 +370,9 @@ def build_vector_database(processed_recipes: List[Dict[str, Any]], output_dir: s
     try:
         logger.info("ベクトルデータベース構築開始...")
         
-        # OpenAI Embeddingsの初期化
-        embeddings = OpenAIEmbeddings()
+        # OpenAI Embeddingsの初期化（環境変数からモデルを取得）
+        embedding_model = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+        embeddings = OpenAIEmbeddings(model=embedding_model)
         
         # テキストとメタデータを準備
         texts = [recipe['combined_text'] for recipe in processed_recipes]
