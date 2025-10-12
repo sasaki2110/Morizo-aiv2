@@ -220,157 +220,136 @@ class ResponseFormatters:
         
         return response_parts
     
-    def format_inventory_update(self, data: Dict) -> List[str]:
-        """在庫更新のフォーマット"""
+    def _format_success_response(self, data: Dict, operation_type: str) -> List[str]:
+        """成功時の共通フォーマット処理"""
         response_parts = []
+        item_data = data.get("data", {})
         
-        # 修正: success判定を追加
-        if isinstance(data, dict) and data.get("success"):
-            # 成功時の表示
-            item_data = data.get("data", {})
+        # 複数件の処理結果に対応
+        if isinstance(item_data, list):
+            # 複数件の場合
+            response_parts.append(f"✅ **在庫を{operation_type}しました**")
+            response_parts.append("")
+            response_parts.append(f"📦 **{operation_type}件数**: {len(item_data)}件")
+            response_parts.append("")
             
-            # 複数件の更新結果に対応
-            if isinstance(item_data, list):
-                # 複数件の場合
-                response_parts.append("✅ **在庫を更新しました**")
-                response_parts.append("")
-                response_parts.append(f"📦 **更新件数**: {len(item_data)}件")
-                response_parts.append("")
-                
-                # 各アイテムの情報を表示
-                for i, item in enumerate(item_data, 1):
-                    if isinstance(item, dict):
-                        item_name = item.get("item_name", "アイテム")
+            # 各アイテムの情報を表示
+            for i, item in enumerate(item_data, 1):
+                if isinstance(item, dict):
+                    item_name = item.get("item_name", "アイテム")
+                    if operation_type == "削除":
+                        response_parts.append(f"{i}. 🗑️ **{item_name}**")
+                    else:
                         quantity = item.get("quantity", 0)
                         unit = item.get("unit", "個")
                         response_parts.append(f"{i}. **{item_name}**: {quantity}{unit}")
-                
-                response_parts.append("")
-                response_parts.append("在庫情報が正常に更新されました。")
+            
+            response_parts.append("")
+            response_parts.append(f"在庫から正常に{operation_type}されました。")
+        else:
+            # 単一件の場合
+            item_name = item_data.get("item_name", "アイテム")
+            
+            response_parts.append(f"✅ **在庫を{operation_type}しました**")
+            response_parts.append("")
+            
+            if operation_type == "削除":
+                response_parts.append(f"🗑️ **{item_name}** を在庫から{operation_type}しました。")
             else:
-                # 単一アイテムの場合（既存の処理）
-                item_name = item_data.get("item_name", "アイテム")
                 quantity = item_data.get("quantity", 0)
                 unit = item_data.get("unit", "個")
-                
-                response_parts.append("✅ **在庫を更新しました**")
-                response_parts.append("")
                 response_parts.append(f"📦 **{item_name}**: {quantity}{unit}")
-                response_parts.append("")
-                response_parts.append("在庫情報が正常に更新されました。")
-        else:
-            # エラー時の表示
-            error_msg = data.get("error", "不明なエラー") if isinstance(data, dict) else "不明なエラー"
             
-            # AMBIGUITY_DETECTEDエラーの特別処理
-            if error_msg == "AMBIGUITY_DETECTED":
-                message = data.get("message", "在庫が複数あるため更新できません。")
-                items = data.get("items", [])
-                count = data.get("count", 0)
-                
-                response_parts.append("⚠️ **在庫の更新について**")
-                response_parts.append("")
-                response_parts.append(message)
-                response_parts.append("")
-                
-                if items:
-                    response_parts.append("**現在の在庫:**")
-                    for i, item in enumerate(items, 1):
-                        quantity = item.get("quantity", 0)
-                        unit = item.get("unit", "個")
-                        storage_location = item.get("storage_location", "")
-                        expiry_date = item.get("expiry_date", "")
-                        created_at = item.get("created_at", "")
-                        
-                        # 日付のフォーマット
-                        if created_at:
-                            try:
-                                from datetime import datetime
-                                dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                                created_str = dt.strftime("%m/%d")
-                            except:
-                                created_str = created_at[:10] if len(created_at) >= 10 else created_at
-                        else:
-                            created_str = "不明"
-                        
-                        response_parts.append(f"{i}. {quantity}{unit} - {storage_location} (作成: {created_str})")
-                        if expiry_date:
-                            response_parts.append(f"   賞味期限: {expiry_date}")
-                
-                response_parts.append("")
-                response_parts.append("**選択肢:**")
-                response_parts.append("- 「最新の○○を変えて」")
-                response_parts.append("- 「一番古い○○を変えて」")
-                response_parts.append("- 「全部の○○を変えて」")
-            else:
-                # 通常のエラー処理
-                response_parts.append("❌ **在庫の更新に失敗しました**")
-                response_parts.append("")
-                response_parts.append(f"エラー: {error_msg}")
-                response_parts.append("")
-                response_parts.append("もう一度お試しください。")
+            response_parts.append("")
+            response_parts.append(f"在庫から正常に{operation_type}されました。")
         
         return response_parts
     
-    def format_inventory_delete(self, data: Dict) -> List[str]:
-        """在庫削除のフォーマット"""
+    def _format_ambiguity_error(self, data: Dict, operation_type: str) -> List[str]:
+        """AMBIGUITY_DETECTEDエラーの共通処理"""
         response_parts = []
+        message = data.get("message", f"在庫が複数あるため{operation_type}できません。")
+        items = data.get("items", [])
         
-        # 修正: success判定を追加
+        response_parts.append(f"⚠️ **在庫の{operation_type}について**")
+        response_parts.append("")
+        response_parts.append(message)
+        response_parts.append("")
+        
+        if items:
+            response_parts.append("**現在の在庫:**")
+            for i, item in enumerate(items, 1):
+                item_name = item.get("item_name", "アイテム")
+                quantity = item.get("quantity", 0)
+                unit = item.get("unit", "")
+                storage_location = item.get("storage_location", "未設定")
+                expiry_date = item.get("expiry_date", "未設定")
+                created_at = item.get("created_at", "")
+                
+                # 日付のフォーマット
+                if created_at:
+                    try:
+                        from datetime import datetime
+                        dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                        created_str = dt.strftime("%m/%d")
+                    except:
+                        created_str = created_at[:10] if len(created_at) >= 10 else created_at
+                else:
+                    created_str = "不明"
+                
+                response_parts.append(f"{i}. **{item_name}**")
+                response_parts.append(f"   - 数量: {quantity}{unit}")
+                response_parts.append(f"   - 保存場所: {storage_location}")
+                response_parts.append(f"   - 期限: {expiry_date}")
+                response_parts.append(f"   - 作成日: {created_str}")
+                response_parts.append("")
+        
+        if operation_type == "更新":
+            response_parts.append("**選択肢:**")
+            response_parts.append("- 「最新の○○を変えて」")
+            response_parts.append("- 「一番古い○○を変えて」")
+            response_parts.append("- 「全部の○○を変えて」")
+        else:
+            response_parts.append(f"{operation_type}対象を特定するため、「最新の」「一番古い」「全部」などを指定してください。")
+        
+        return response_parts
+    
+    def _format_general_error(self, error_msg: str, operation_type: str) -> List[str]:
+        """通常エラーの共通処理"""
+        response_parts = []
+        response_parts.append(f"❌ **在庫の{operation_type}に失敗しました**")
+        response_parts.append("")
+        response_parts.append(f"エラー: {error_msg}")
+        response_parts.append("")
+        response_parts.append("もう一度お試しください。")
+        return response_parts
+
+    def format_inventory_update(self, data: Dict) -> List[str]:
+        """在庫更新のフォーマット"""
+        # 成功判定
         if isinstance(data, dict) and data.get("success"):
-            # 成功時の表示
-            deleted_items = data.get("data", [])
-            
-            if isinstance(deleted_items, list) and len(deleted_items) > 0:
-                # 複数件削除の場合
-                item_name = deleted_items[0].get("item_name", "アイテム")
-                count = len(deleted_items)
-                
-                response_parts.append("✅ **在庫を削除しました**")
-                response_parts.append("")
-                response_parts.append(f"🗑️ **{item_name}** を{count}件削除しました。")
-                response_parts.append("")
-                response_parts.append("在庫から正常に削除されました。")
-            else:
-                # 単一件削除の場合（従来の処理）
-                item_data = deleted_items if isinstance(deleted_items, dict) else {}
-                item_name = item_data.get("item_name", "アイテム")
-                
-                response_parts.append("✅ **在庫を削除しました**")
-                response_parts.append("")
-                response_parts.append(f"🗑️ **{item_name}** を在庫から削除しました。")
-                response_parts.append("")
-                response_parts.append("在庫から正常に削除されました。")
+            return self._format_success_response(data, "更新")
         else:
             # エラー時の表示
             error_msg = data.get("error", "不明なエラー") if isinstance(data, dict) else "不明なエラー"
             
             # AMBIGUITY_DETECTEDエラーの特別処理
             if error_msg == "AMBIGUITY_DETECTED":
-                message = data.get("message", "在庫が複数あるため削除できません。")
-                items = data.get("items", [])
-                count = data.get("count", 0)
-                
-                response_parts.append("⚠️ **在庫の削除について**")
-                response_parts.append("")
-                response_parts.append(message)
-                response_parts.append("")
-                
-                if items:
-                    response_parts.append("**現在の在庫:**")
-                    for i, item in enumerate(items, 1):
-                        response_parts.append(f"{i}. **{item.get('item_name', 'アイテム')}**")
-                        response_parts.append(f"   - 数量: {item.get('quantity', 0)}{item.get('unit', '')}")
-                        response_parts.append(f"   - 保存場所: {item.get('storage_location', '未設定')}")
-                        response_parts.append(f"   - 期限: {item.get('expiry_date', '未設定')}")
-                        response_parts.append("")
-                
-                response_parts.append("削除対象を特定するため、「最新の」「一番古い」「全部」などを指定してください。")
+                return self._format_ambiguity_error(data, "更新")
             else:
-                response_parts.append("❌ **在庫の削除に失敗しました**")
-                response_parts.append("")
-                response_parts.append(f"エラー: {error_msg}")
-                response_parts.append("")
-                response_parts.append("もう一度お試しください。")
-        
-        return response_parts
+                return self._format_general_error(error_msg, "更新")
+    
+    def format_inventory_delete(self, data: Dict) -> List[str]:
+        """在庫削除のフォーマット"""
+        # 成功判定
+        if isinstance(data, dict) and data.get("success"):
+            return self._format_success_response(data, "削除")
+        else:
+            # エラー時の表示
+            error_msg = data.get("error", "不明なエラー") if isinstance(data, dict) else "不明なエラー"
+            
+            # AMBIGUITY_DETECTEDエラーの特別処理
+            if error_msg == "AMBIGUITY_DETECTED":
+                return self._format_ambiguity_error(data, "削除")
+            else:
+                return self._format_general_error(error_msg, "削除")
