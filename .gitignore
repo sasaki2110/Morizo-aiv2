@@ -229,7 +229,7 @@ cache/
 me2you
 
 # レシピ関連データ
-recipe_vector_db/
+recipe_vector_db*/
 *.sqlite3
 embeddings/
 
