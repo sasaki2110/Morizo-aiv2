@@ -23,7 +23,7 @@ class RecipeSearchEngine:
     async def search_similar_recipes(
         self,
         ingredients: List[str],
-        menu_type: str,
+        menu_type: str = "和食",
         excluded_recipes: List[str] = None,
         limit: int = 5
     ) -> List[Dict[str, Any]]:
@@ -55,7 +55,6 @@ class RecipeSearchEngine:
                 formatted_result = {
                     "title": result["title"],
                     "category": result["category"],
-                    "category_detail": result.get("category_detail", ""),
                     "main_ingredients": result["main_ingredients"],
                     "original_index": result["original_index"],
                     "content": result["content"]
@@ -71,7 +70,7 @@ class RecipeSearchEngine:
     async def search_recipes_by_partial_match(
         self,
         ingredients: List[str],
-        menu_type: str,
+        menu_type: str = "和食",
         excluded_recipes: List[str] = None,
         limit: int = 5,
         min_match_score: float = 0.1
@@ -132,7 +131,6 @@ class RecipeSearchEngine:
                         formatted_result = {
                             "title": title,
                             "category": metadata.get('recipe_category', ''),
-                            "category_detail": metadata.get('category_detail', ''),
                             "main_ingredients": metadata.get('main_ingredients', ''),
                             "original_index": metadata.get('original_index', 0),
                             "content": content,

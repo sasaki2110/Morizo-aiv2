@@ -44,7 +44,7 @@ class RecipeLLM:
     async def generate_menu_titles(
         self, 
         inventory_items: List[str], 
-        menu_type: str = "和食",
+        menu_type: str,
         excluded_recipes: List[str] = None
     ) -> Dict[str, Any]:
         """

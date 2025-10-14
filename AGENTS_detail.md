@@ -1,5 +1,24 @@
 # RAG 検索改修　基本方針
 
+
+## 現状
+
+- scripts/build_vector_db_by_category.py は実装済み。
+- .env も定義済み
+- 主菜・副菜・汁物別ベクトルDBも生成済み。
+- tests/rag_tests/test_show_vector_db_by_category.py でベクトルDB確認済み
+- tests/rag_tests/test_rag_search_by_category.py で３ベクトルDBの大まかな確認済み。 結果は zzz.log 参照。
+
+## これから
+
+mcp_servers/recipe_rag への反映。 ⇒　済み 
+反映時は、比較検証用に、バックアップを保存しておく事。 ⇒　済み
+直接テスト作成　test_rag_mcp_direct_by_category.py　⇒　済み
+MCPツールsearch_menu_from_rag_with_historyから呼び出し　⇒ 済み
+フロントエンドとの連動試験　⇒　済み
+
+どこかで、１ベクトル処理のクリーンアップが必要。
+
 ## 方針
 
 ### 最終的な方法論は、３つのベクトルＤＢを作る事。  
@@ -81,20 +100,6 @@ recipe_rag/search.pyへ組み込み。
 AGENTS_detail.md の続き
 
 ---
-
-承認制を厳格に遵守いたします。まず、現在の`build_vector_db.py`の仕様を詳しく調査して、`build_vector_db_by_category.py`の実装プランを提示いたします。
-
-
-[1 tool called]
-
-現在の`build_vector_db.py`の仕様を詳しく分析いたしました。次に、レシピデータの構造も確認して、実装プランを提示いたします。
-
-
-[2 tools called]
-
-現在の`build_vector_db.py`の仕様とレシピデータの構造を詳しく分析いたしました。以下に`build_vector_db_by_category.py`の実装プランを提示いたします。
-
-## 📋 build_vector_db_by_category.py 実装プラン
 
 ### 🎯 基本方針
 現在の`build_vector_db.py`の仕様を踏襲し、主菜・副菜・汁物別に3つのベクトルDBを生成するスクリプトを作成します。

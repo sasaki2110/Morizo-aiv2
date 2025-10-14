@@ -75,7 +75,7 @@ async def get_recipe_history_for_user(user_id: str, token: str = None) -> Dict[s
 async def generate_menu_plan_with_history(
     inventory_items: List[str],
     user_id: str,
-    menu_type: str = "和食",
+    menu_type: str = "",
     excluded_recipes: List[str] = None,
     token: str = None
 ) -> Dict[str, Any]:
@@ -113,7 +113,7 @@ async def generate_menu_plan_with_history(
 async def search_menu_from_rag_with_history(
     inventory_items: List[str],
     user_id: str,
-    menu_type: str = "和食",
+    menu_type: str = "",
     excluded_recipes: List[str] = None,
     token: str = None
 ) -> Dict[str, Any]:
@@ -149,28 +149,31 @@ async def search_menu_from_rag_with_history(
         client = get_authenticated_client(user_id, token)
         logger.info(f"🔐 [RECIPE] Authenticated client created for user: {user_id}")
         
-        # RAG検索を実行
-        rag_results = await rag_client.search_similar_recipes(
+        # RAG検索を実行（3ベクトルDB対応）
+        categorized_results = await rag_client.search_recipes_by_category(
             ingredients=inventory_items,
             menu_type=menu_type,
             excluded_recipes=excluded_recipes,
             limit=10  # 多めに取得して献立構成に使用
         )
         
-        logger.info(f"🔍 [RECIPE] RAG search completed, found {len(rag_results)} recipes")
+        logger.info(f"🔍 [RECIPE] RAG search completed, found categorized results")
+        logger.info(f"🔍 [RECIPE] Main: {len(categorized_results.get('main', []))} recipes")
+        logger.info(f"🔍 [RECIPE] Sub: {len(categorized_results.get('sub', []))} recipes")
+        logger.info(f"🔍 [RECIPE] Soup: {len(categorized_results.get('soup', []))} recipes")
         
-        # RAG検索結果を献立形式に変換
+        # RAG検索結果を献立形式に変換（3ベクトルDB対応）
         try:
-            logger.info(f"🔄 [RECIPE] Starting convert_rag_results_to_menu_format")
-            menu_result = await rag_client.convert_rag_results_to_menu_format(
-                rag_results=rag_results,
+            logger.info(f"🔄 [RECIPE] Starting convert_categorized_results_to_menu_format")
+            menu_result = await rag_client.convert_categorized_results_to_menu_format(
+                categorized_results=categorized_results,
                 inventory_items=inventory_items,
                 menu_type=menu_type
             )
-            logger.info(f"✅ [RECIPE] convert_rag_results_to_menu_format completed")
+            logger.info(f"✅ [RECIPE] convert_categorized_results_to_menu_format completed")
         except Exception as e:
-            logger.error(f"❌ [RECIPE] Error in convert_rag_results_to_menu_format: {e}")
-            logger.error(f"❌ [RECIPE] RAG results: {rag_results}")
+            logger.error(f"❌ [RECIPE] Error in convert_categorized_results_to_menu_format: {e}")
+            logger.error(f"❌ [RECIPE] Categorized results: {categorized_results}")
             raise
         
         logger.info(f"✅ [RECIPE] search_menu_from_rag_with_history completed successfully")
