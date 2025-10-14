@@ -7,7 +7,7 @@ ResponseFormatters - レスポンスフォーマット処理
 
 from typing import Dict, Any, List
 from config.loggers import GenericLogger
-from .utils import STORAGE_EMOJI_MAP
+from .utils import STORAGE_EMOJI_MAP, FOOD_CATEGORY_MAPPING, CATEGORY_EMOJI_MAP
 
 
 class ResponseFormatters:
@@ -18,7 +18,7 @@ class ResponseFormatters:
         self.logger = GenericLogger("service", "llm.response.formatters")
     
     def format_inventory_list(self, data: Dict, is_menu_scenario: bool = False) -> List[str]:
-        """在庫一覧のフォーマット"""
+        """在庫一覧のフォーマット（同一アイテム合算表示・カテゴリ別ソート対応）"""
         response_parts = []
         
         # 修正: success判定を追加
@@ -33,28 +33,30 @@ class ResponseFormatters:
             if is_menu_scenario:
                 return []
             
+            # 同一アイテムの合算処理
+            grouped_items = self._group_items_by_name(inventory_data)
+            
+            # カテゴリ別に分類・ソート
+            categorized_items = self._categorize_and_sort_items(grouped_items)
+            
             # 通常の在庫表示（詳細）
             response_parts.append("📋 **現在の在庫一覧**")
-            response_parts.append(f"総アイテム数: {len(inventory_data)}個")
+            response_parts.append(f"総アイテム数: {len(grouped_items)}種類")
             response_parts.append("")
             
-            # アイテムをカテゴリ別に整理
-            categories = {}
-            for item in inventory_data:
-                storage = item.get('storage_location', 'その他')
-                if storage not in categories:
-                    categories[storage] = []
-                categories[storage].append(item)
-            
-            # カテゴリ別に表示
-            for storage, items in categories.items():
-                storage_emoji = STORAGE_EMOJI_MAP.get(storage, "📦")
-                response_parts.append(f"{storage_emoji} **{storage}**")
-                response_parts.append("")  # セクションタイトル後の空行
-                for item in items:
-                    expiry_info = f" (期限: {item['expiry_date']})" if item.get('expiry_date') else ""
-                    response_parts.append(f"  • {item['item_name']}: {item['quantity']} {item['unit']}{expiry_info}")
-                response_parts.append("")  # セクション終了後の空行
+            # カテゴリ別に表示（肉→野菜→その他の順序）
+            for category in ['肉', '野菜', 'その他']:
+                if category in categorized_items and categorized_items[category]:
+                    category_emoji = CATEGORY_EMOJI_MAP.get(category, "📦")
+                    response_parts.append(f"{category_emoji} **{category}類**")
+                    response_parts.append("")  # セクションタイトル後の空行
+                    
+                    for item_name, item_info in categorized_items[category]:
+                        # アイテム情報の表示
+                        display_text = self._format_item_display(item_name, item_info)
+                        response_parts.append(f"  • {display_text}")
+                    
+                    response_parts.append("")  # セクション終了後の空行
             
             return response_parts
         else:
@@ -67,6 +69,101 @@ class ResponseFormatters:
             response_parts.append("もう一度お試しください。")
             
             return response_parts
+    
+    def _group_items_by_name(self, inventory_data: List[Dict]) -> Dict[str, Dict]:
+        """同一アイテム名でグループ化して数量を合算"""
+        grouped_items = {}
+        
+        for item in inventory_data:
+            item_name = item.get('item_name', '')
+            if not item_name:
+                continue
+                
+            if item_name not in grouped_items:
+                grouped_items[item_name] = {
+                    'total_quantity': 0,
+                    'unit': item.get('unit', '個'),
+                    'locations': [],
+                    'expiry_dates': [],
+                    'items': []  # 元のアイテム情報を保持
+                }
+            
+            # 数量合算
+            grouped_items[item_name]['total_quantity'] += float(item.get('quantity', 0))
+            
+            # 保管場所情報を収集
+            storage_location = item.get('storage_location', 'その他')
+            if storage_location not in grouped_items[item_name]['locations']:
+                grouped_items[item_name]['locations'].append(storage_location)
+            
+            # 期限情報を収集
+            expiry_date = item.get('expiry_date')
+            if expiry_date and expiry_date not in grouped_items[item_name]['expiry_dates']:
+                grouped_items[item_name]['expiry_dates'].append(expiry_date)
+            
+            # 元のアイテム情報を保持
+            grouped_items[item_name]['items'].append(item)
+        
+        return grouped_items
+    
+    def _categorize_and_sort_items(self, grouped_items: Dict[str, Dict]) -> Dict[str, List]:
+        """アイテムをカテゴリ別に分類し、ソート"""
+        categorized_items = {
+            '肉': [],
+            '野菜': [],
+            'その他': []
+        }
+        
+        for item_name, item_info in grouped_items.items():
+            category = self._get_item_category(item_name)
+            categorized_items[category].append((item_name, item_info))
+        
+        # 各カテゴリ内でアイテム名順にソート
+        for category in categorized_items:
+            categorized_items[category].sort(key=lambda x: x[0])
+        
+        return categorized_items
+    
+    def _get_item_category(self, item_name: str) -> str:
+        """アイテム名からカテゴリを判定"""
+        for category, keywords in FOOD_CATEGORY_MAPPING.items():
+            if any(keyword in item_name for keyword in keywords):
+                return category
+        return 'その他'
+    
+    def _format_item_display(self, item_name: str, item_info: Dict) -> str:
+        """アイテムの表示形式を生成"""
+        total_quantity = item_info['total_quantity']
+        unit = item_info['unit']
+        locations = item_info['locations']
+        expiry_dates = item_info['expiry_dates']
+        
+        # 数量の表示形式を調整（整数の場合は小数点を表示しない）
+        if total_quantity == int(total_quantity):
+            quantity_str = str(int(total_quantity))
+        else:
+            quantity_str = str(total_quantity)
+        
+        # 基本表示
+        display_text = f"{item_name}: {quantity_str}{unit}"
+        
+        # 保管場所情報の追加
+        if len(locations) > 1:
+            location_text = ", ".join(locations)
+            display_text += f" ({location_text})"
+        elif len(locations) == 1:
+            display_text += f" ({locations[0]})"
+        
+        # 期限情報の追加
+        if expiry_dates:
+            if len(expiry_dates) == 1:
+                display_text += f" [期限: {expiry_dates[0]}]"
+            else:
+                # 複数の期限がある場合は最短期限を表示
+                sorted_dates = sorted(expiry_dates)
+                display_text += f" [期限: {sorted_dates[0]}他]"
+        
+        return display_text
     
     def format_web_recipes(self, web_data: Any) -> List[str]:
         """Web検索結果のフォーマット（簡素化版）"""
