@@ -284,7 +284,9 @@ async def test_user_response_parsing():
         # 様々なユーザー応答をテスト
         test_responses = [
             ("IDで指定してください", "by_id"),
-            ("名前で指定してください", "by_name"),
+            ("最新の", "by_name_latest"),
+            ("古い方", "by_name_oldest"),
+            ("全部", "by_name"),
             ("キャンセル", "cancelled"),
             ("やめる", "cancelled")
         ]

@@ -108,6 +108,11 @@ class TaskChainManager:
         """Resume execution after confirmation."""
         self.is_paused = False
     
+    def pause_for_confirmation(self) -> None:
+        """Pause execution for user confirmation."""
+        self.is_paused = True
+        self.logger.info(f"⏸️ [TaskChainManager] Execution paused for confirmation")
+    
     def send_progress(self, task_id: str, status: str, message: str = "") -> None:
         """Send progress update via SSE."""
         if self.sse_session_id:
@@ -161,7 +166,7 @@ class TaskChainManager:
                 logger = logging.getLogger("core.models")
                 logger.error(f"❌ [TaskChainManager] SSE progress send failed: {e}")
     
-    def send_complete(self, final_response: str, menu_data: Optional[Dict[str, Any]] = None) -> None:
+    def send_complete(self, final_response: str, menu_data: Optional[Dict[str, Any]] = None, confirmation_data: Optional[Dict[str, Any]] = None) -> None:
         """Send completion notification via SSE."""
         self.logger.info(f"🔍 [TaskChainManager] send_complete method called")
         self.logger.info(f"🔍 [TaskChainManager] Menu data received: {menu_data is not None}")
@@ -184,6 +189,11 @@ class TaskChainManager:
                 if menu_data:
                     self.logger.info(f"📊 [TaskChainManager] Menu data content preview: {str(menu_data)[:200]}...")
                 
+                # デバッグログ: confirmation_dataの値を確認
+                self.logger.info(f"🔍 [TaskChainManager] About to call SSE send_complete with confirmation_data: {confirmation_data is not None}")
+                if confirmation_data:
+                    self.logger.info(f"🔍 [TaskChainManager] Confirmation data: {confirmation_data}")
+                
                 # イベントループの状態を確認して適切な方法で実行
                 if loop.is_running():
                     # 既にイベントループが実行中の場合は、run_coroutine_threadsafeを使用
@@ -192,7 +202,8 @@ class TaskChainManager:
                         sse_sender.send_complete(
                             self.sse_session_id, 
                             final_response,
-                            menu_data
+                            menu_data,
+                            confirmation_data
                         ),
                         loop
                     )
@@ -207,7 +218,8 @@ class TaskChainManager:
                     loop.run_until_complete(sse_sender.send_complete(
                         self.sse_session_id, 
                         final_response,
-                        menu_data
+                        menu_data,
+                        confirmation_data
                     ))
                     self.logger.info(f"✅ [TaskChainManager] SSE send_complete call completed (event loop not running)")
                 

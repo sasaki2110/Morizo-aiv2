@@ -106,7 +106,7 @@ class SSESender:
         except Exception as e:
             self.logger.error(f"❌ [SSE] Failed to send progress: {e}")
     
-    async def send_complete(self, session_id: str, response_text: str, menu_data: Optional[Dict[str, Any]] = None):
+    async def send_complete(self, session_id: str, response_text: str, menu_data: Optional[Dict[str, Any]] = None, confirmation_data: Optional[Dict[str, Any]] = None):
         """完了メッセージを送信"""
         try:
             event_data = {
@@ -123,6 +123,14 @@ class SSESender:
                 self.logger.info(f"🔍 [SSE] Menu data preview: {str(menu_data)[:200]}...")
             else:
                 self.logger.info(f"⚠️ [SSE] No menu data provided")
+            
+            # confirmation_dataがある場合は追加
+            if confirmation_data:
+                event_data["result"]["requires_confirmation"] = confirmation_data.get("requires_confirmation", False)
+                event_data["result"]["confirmation_session_id"] = confirmation_data.get("confirmation_session_id")
+                self.logger.info(f"🔍 [SSE] Confirmation data included: {confirmation_data}")
+            else:
+                self.logger.info(f"⚠️ [SSE] No confirmation data provided")
             
             # 実際の送信処理を追加
             await self._send_to_session(session_id, event_data)

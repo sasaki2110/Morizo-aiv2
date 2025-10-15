@@ -138,7 +138,9 @@ class ToolRouter:
                     tool_name = "inventory_update_by_name_latest"
                 elif strategy == "by_name_oldest":
                     tool_name = "inventory_update_by_name_oldest"
-                elif strategy == "by_name":  # 全部処理
+                elif strategy == "by_name":  # 曖昧性あり
+                    tool_name = "inventory_update_by_name"
+                elif strategy == "by_name_all":  # 全部処理
                     tool_name = "inventory_update_by_name"
                 elif strategy == "by_name_with_ambiguity_check":  # 曖昧性チェック付き
                     tool_name = "inventory_update_by_name_with_ambiguity_check"
@@ -154,7 +156,9 @@ class ToolRouter:
                     tool_name = "inventory_delete_by_name_latest"
                 elif strategy == "by_name_oldest":
                     tool_name = "inventory_delete_by_name_oldest"
-                elif strategy == "by_name":  # 全部処理
+                elif strategy == "by_name":  # 曖昧性あり
+                    tool_name = "inventory_delete_by_name"
+                elif strategy == "by_name_all":  # 全部処理
                     tool_name = "inventory_delete_by_name"
                 elif strategy == "by_name_with_ambiguity_check":  # 曖昧性チェック付き
                     tool_name = "inventory_delete_by_name_with_ambiguity_check"

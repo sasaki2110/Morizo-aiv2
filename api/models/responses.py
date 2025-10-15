@@ -5,17 +5,24 @@ API層 - レスポンスモデル
 Pydanticによるレスポンスデータの型定義
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, Dict, Any
 
 
 class ChatResponse(BaseModel):
     """チャットレスポンス"""
+    model_config = ConfigDict(
+        ser_json_exclude_defaults=False,
+        ser_json_exclude_none=False
+    )
+    
     response: str = Field(..., description="AIからの応答")
     success: bool = Field(..., description="処理成功フラグ")
     model_used: str = Field(..., description="使用されたモデル")
     user_id: str = Field(..., description="ユーザーID")
-    processing_time: Optional[float] = Field(None, description="処理時間（秒）")
+    processing_time: Optional[float] = Field(default=None, description="処理時間（秒）")
+    requires_confirmation: Optional[bool] = Field(default=False, description="曖昧性確認が必要かどうか")
+    confirmation_session_id: Optional[str] = Field(default=None, description="確認セッションID")
 
 
 class HealthResponse(BaseModel):

@@ -19,15 +19,47 @@ router = APIRouter()
 logger = GenericLogger("api", "chat")
 
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post("/chat")
 async def chat(request: ChatRequest, http_request: Request):
     """AIエージェントとの対話"""
     try:
+        # リクエストボディからconfirmを取得（プロキシ問題回避）
+        logger.info(f"🔍 [API] Raw headers: {dict(http_request.headers)}")
+        
+        # リクエストボディを直接読み取り
+        raw_body = await http_request.body()
+        logger.info(f"🔍 [API] Raw request body: {raw_body}")
+        
+        try:
+            import json
+            raw_json = json.loads(raw_body)
+            logger.info(f"🔍 [API] Raw JSON: {raw_json}")
+            confirm_from_body = raw_json.get("confirm", False)
+            logger.info(f"🔍 [API] Confirm from body: {confirm_from_body}")
+        except Exception as e:
+            logger.error(f"❌ [API] Failed to parse body: {e}")
+            confirm_from_body = False
+        
+        # Pydanticモデルの内容をログ出力
+        logger.info(f"🔍 [API] Parsed request model: {request.model_dump()}")
+        
+        # Pydanticモデルのフィールドを直接確認
+        logger.info(f"🔍 [API] Pydantic model fields:")
+        logger.info(f"  message: {request.message}")
+        logger.info(f"  sse_session_id: {request.sse_session_id}")
+        logger.info(f"  confirm: {request.confirm}")
+        logger.info(f"🔍 [API] Confirm from body: {confirm_from_body}")
+        
+        # 実際に使用する値（リクエストボディを優先）
+        actual_confirm = confirm_from_body or request.confirm
+        logger.info(f"🔍 [API] Actual confirm value: {actual_confirm}")
+        
         # リクエストボディの詳細ログ
         logger.info(f"🔍 [API] Chat request received:")
         logger.info(f"  Message: {request.message[:100]}...")
         logger.info(f"  Token: {'SET' if request.token else 'NOT SET'}")
         logger.info(f"  SSE Session ID: {request.sse_session_id if request.sse_session_id else 'NOT SET'}")
+        logger.info(f"  Confirm: {request.confirm} (type: {type(request.confirm).__name__})")
         
         # ミドルウェアで認証済みのユーザー情報を取得
         user_info = getattr(http_request.state, 'user_info', None)
@@ -47,26 +79,47 @@ async def chat(request: ChatRequest, http_request: Request):
         agent = TrueReactAgent()
         
         # リクエストの処理（TaskChainManagerが進捗送信を担当）
-        response_text = await agent.process_request(
+        response_data = await agent.process_request(
             request.message, 
             user_id,
             token=token,
-            sse_session_id=sse_session_id
+            sse_session_id=sse_session_id,
+            is_confirmation_response=actual_confirm
         )
         
         # レスポンスの生成
-        response = ChatResponse(
-            response=response_text,
-            success=True,
-            model_used="gpt-4o-mini",
-            user_id=user_id
-        )
+        if isinstance(response_data, dict) and "requires_confirmation" in response_data:
+            # 曖昧性確認が必要な場合
+            logger.info(f"🔍 [API] Building confirmation response: requires_confirmation={response_data.get('requires_confirmation')}, session_id={response_data.get('confirmation_session_id')}")
+            response = ChatResponse(
+                response=response_data["response"],
+                success=True,
+                model_used="gpt-4o-mini",
+                user_id=user_id,
+                requires_confirmation=response_data.get("requires_confirmation", False),
+                confirmation_session_id=response_data.get("confirmation_session_id")
+            )
+            logger.info(f"🔍 [API] Confirmation response built: requires_confirmation={response.requires_confirmation}, confirmation_session_id={response.confirmation_session_id}")
+        else:
+            # 通常のレスポンス
+            logger.info(f"🔍 [API] Building normal response")
+            response = ChatResponse(
+                response=response_data,
+                success=True,
+                model_used="gpt-4o-mini",
+                user_id=user_id,
+                requires_confirmation=False,
+                confirmation_session_id=None
+            )
+            logger.info(f"🔍 [API] Normal response built: requires_confirmation={response.requires_confirmation}, confirmation_session_id={response.confirmation_session_id}")
+        
+        logger.info(f"🔍 [API] Final response object: {response.dict()}")
         
         # 完了通知はTaskChainManagerで送信されるため、ここでは送信しない
         # await sse_sender.send_complete(sse_session_id, response_text)
         
         logger.info(f"✅ [API] Chat request completed for user: {user_id}")
-        return response
+        return response.dict()
         
     except HTTPException:
         raise

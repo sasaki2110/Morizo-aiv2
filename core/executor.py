@@ -16,9 +16,10 @@ from config.loggers import GenericLogger
 class TaskExecutor:
     """Executes tasks with dependency resolution and parallel processing."""
     
-    def __init__(self):
+    def __init__(self, service_coordinator: ServiceCoordinator, confirmation_service=None):
+        self.service_coordinator = service_coordinator
+        self.confirmation_service = confirmation_service
         self.logger = GenericLogger("core", "executor")
-        self.service_coordinator = ServiceCoordinator()
     
     async def execute(self, tasks: List[Task], user_id: str, task_chain_manager: TaskChainManager, token: str) -> ExecutionResult:
         """
@@ -35,6 +36,32 @@ class TaskExecutor:
         """
         try:
             self.logger.info(f"🔄 [EXECUTOR] Starting ReAct loop with {len(tasks)} tasks for user {user_id}")
+            
+            # 【新規追加】実行前に曖昧性チェック
+            if self.confirmation_service:
+                self.logger.info(f"🔍 [EXECUTOR] Checking for ambiguity before execution")
+                
+                # ConfirmationServiceで曖昧性チェック
+                ambiguity_result = await self.confirmation_service.detect_ambiguity(tasks, user_id, token)
+                
+                if ambiguity_result.requires_confirmation:
+                    self.logger.info(f"⚠️ [EXECUTOR] Ambiguity detected, requesting confirmation")
+                    
+                    # 最初の曖昧なタスクの情報を取得
+                    first_ambiguous_task = ambiguity_result.ambiguous_tasks[0]
+                    
+                    return ExecutionResult(
+                        status="needs_confirmation",
+                        confirmation_context={
+                            "ambiguity_info": first_ambiguous_task,
+                            "user_response": "",
+                            "original_tasks": tasks
+                        },
+                        outputs={},
+                        message=first_ambiguous_task.details["message"]
+                    )
+                
+                self.logger.info(f"✅ [EXECUTOR] No ambiguity detected, proceeding with execution")
             
             # Log task dependency graph
             self.logger.info(f"📊 [EXECUTOR] Task dependency graph:")

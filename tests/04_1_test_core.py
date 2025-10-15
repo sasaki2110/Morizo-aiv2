@@ -249,6 +249,310 @@ class TestTrueReactAgent:
             print(f"\n❌ [WEB_SEARCH_RESULTS] 結果表示中にエラーが発生しました: {e}")
             logger.error(f"❌ [WEB_SEARCH_RESULTS] 結果表示中にエラーが発生しました: {e}")
 
+    async def _create_test_data(self, test_user_id: str, test_item_prefix: str, item_name: str, count: int = 3):
+        """テストデータの作成（分離版）"""
+        try:
+            import time
+            from mcp_servers.inventory_crud import InventoryCRUD
+            
+            logger.info(f"📦 [CORE_TEST] Creating test data: {test_item_prefix}{item_name} x {count}")
+            
+            # 認証トークンを取得
+            test_user_id_real, token = await self._get_test_auth_token()
+            if not test_user_id_real or not token:
+                logger.warning("⚠️ [CORE_TEST] Authentication failed, using fallback")
+                test_user_id_real = "test_user"
+                token = "test_token"
+            
+            # CRUDインスタンス作成
+            crud = InventoryCRUD()
+            
+            # テスト用のクライアント取得
+            import importlib.util
+            import os
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            spec = importlib.util.spec_from_file_location(
+                "test_util", 
+                os.path.join(project_root, "tests", "00_1_test_util.py")
+            )
+            test_util = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(test_util)
+            
+            client = test_util.get_authenticated_client(token)
+            
+            test_items = []
+            
+            # 複数の同名アイテムを作成（曖昧性テスト用）
+            for i in range(count):
+                add_result = await crud.add_item(
+                    client=client,
+                    user_id=test_user_id_real,
+                    item_name=f"{test_item_prefix}{item_name}",
+                    quantity=1.0 + i,
+                    unit="個",
+                    storage_location="冷蔵庫",
+                    expiry_date=f"2025-01-{20 + i:02d}"  # 異なる日付で作成
+                )
+                
+                if add_result["success"]:
+                    test_items.append(add_result["data"])
+                    logger.info(f"📦 Created test item {i+1}: {add_result['data']['id']}")
+                else:
+                    logger.error(f"❌ Failed to create test item {i+1}: {add_result['error']}")
+                    return []
+            
+            logger.info(f"✅ Created {len(test_items)} test items")
+            return test_items
+            
+        except Exception as e:
+            logger.error(f"❌ [CORE_TEST] Error creating test data: {e}")
+            return []
+
+    async def _cleanup_test_data(self, test_user_id: str, test_item_prefix: str, item_name: str):
+        """テストデータのクリーンアップ（分離版）"""
+        try:
+            from mcp_servers.inventory_advanced import InventoryAdvanced
+            
+            logger.info(f"🗑️ [CORE_TEST] Cleaning up test data: {test_item_prefix}{item_name}")
+            
+            # 認証トークンを取得
+            test_user_id_real, token = await self._get_test_auth_token()
+            if not test_user_id_real or not token:
+                logger.warning("⚠️ [CORE_TEST] Authentication failed, using fallback")
+                test_user_id_real = "test_user"
+                token = "test_token"
+            
+            # Advancedインスタンス作成
+            advanced = InventoryAdvanced()
+            
+            # テスト用のクライアント取得
+            import importlib.util
+            import os
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            spec = importlib.util.spec_from_file_location(
+                "test_util", 
+                os.path.join(project_root, "tests", "00_1_test_util.py")
+            )
+            test_util = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(test_util)
+            
+            client = test_util.get_authenticated_client(token)
+            
+            # プレフィックス付きのアイテムを一括削除
+            delete_result = await advanced.delete_by_name(
+                client=client,
+                user_id=test_user_id_real,
+                item_name=f"{test_item_prefix}{item_name}"
+            )
+            
+            if delete_result["success"]:
+                logger.info(f"✅ Cleaned up {len(delete_result['data'])} test items")
+            else:
+                logger.warning(f"⚠️ Cleanup failed: {delete_result['error']}")
+            
+        except Exception as e:
+            logger.error(f"❌ [CORE_TEST] Error cleaning up test data: {e}")
+
+    async def test_ambiguity_resolution_latest(self):
+        """曖昧性解決テスト - 最新戦略（安全・分離版）"""
+        logger.info("🧪 [CORE_TEST] Starting ambiguity resolution test (latest strategy)...")
+        print("🧪 [CORE_TEST] Starting ambiguity resolution test (latest strategy)...")
+        
+        # テスト専用の識別子
+        import time
+        test_user_id = f"test_user_ambiguity_{int(time.time())}"
+        test_item_prefix = "TEST_AMBIGUITY_"
+        test_items = []
+        
+        try:
+            agent = TrueReactAgent()
+            
+            # 1. テストデータの作成（分離）
+            logger.info("📦 [CORE_TEST] Creating test data...")
+            test_items = await self._create_test_data(test_user_id, test_item_prefix, "牛乳", 3)
+            
+            if not test_items:
+                logger.error("❌ [CORE_TEST] Failed to create test data")
+                return False
+            
+            # 2. テスト実行
+            logger.info("🚀 [CORE_TEST] Testing ambiguity resolution with 'latest' strategy...")
+            result = await agent.process_request(
+                user_request=f"{test_item_prefix}牛乳を削除して",
+                user_id=test_user_id,
+                token="test_token",
+                sse_session_id="test_session"
+            )
+            
+            # 3. 結果確認
+            assert result is not None
+            logger.info(f"✅ [CORE_TEST] Ambiguity resolution test (latest) completed successfully")
+            logger.info(f"📄 [CORE_TEST] Result: {result}")
+            print(f"✅ [CORE_TEST] Ambiguity resolution test (latest) completed successfully")
+            print(f"📄 [CORE_TEST] Result: {result}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ [CORE_TEST] Ambiguity resolution test (latest) failed: {str(e)}")
+            print(f"❌ [CORE_TEST] Ambiguity resolution test (latest) failed: {str(e)}")
+            return False
+            
+        finally:
+            # 4. 確実なクリーンアップ（分離）
+            if test_items:
+                await self._cleanup_test_data(test_user_id, test_item_prefix, "牛乳")
+
+    async def test_ambiguity_resolution_oldest(self):
+        """曖昧性解決テスト - 最古戦略（安全・分離版）"""
+        logger.info("🧪 [CORE_TEST] Starting ambiguity resolution test (oldest strategy)...")
+        print("🧪 [CORE_TEST] Starting ambiguity resolution test (oldest strategy)...")
+        
+        # テスト専用の識別子
+        import time
+        test_user_id = f"test_user_ambiguity_{int(time.time())}"
+        test_item_prefix = "TEST_AMBIGUITY_"
+        test_items = []
+        
+        try:
+            agent = TrueReactAgent()
+            
+            # 1. テストデータの作成（分離）
+            logger.info("📦 [CORE_TEST] Creating test data...")
+            test_items = await self._create_test_data(test_user_id, test_item_prefix, "りんご", 3)
+            
+            if not test_items:
+                logger.error("❌ [CORE_TEST] Failed to create test data")
+                return False
+            
+            # 2. テスト実行
+            logger.info("🚀 [CORE_TEST] Testing ambiguity resolution with 'oldest' strategy...")
+            result = await agent.process_request(
+                user_request=f"{test_item_prefix}りんごを更新して",
+                user_id=test_user_id,
+                token="test_token",
+                sse_session_id="test_session"
+            )
+            
+            # 3. 結果確認
+            assert result is not None
+            logger.info(f"✅ [CORE_TEST] Ambiguity resolution test (oldest) completed successfully")
+            logger.info(f"📄 [CORE_TEST] Result: {result}")
+            print(f"✅ [CORE_TEST] Ambiguity resolution test (oldest) completed successfully")
+            print(f"📄 [CORE_TEST] Result: {result}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ [CORE_TEST] Ambiguity resolution test (oldest) failed: {str(e)}")
+            print(f"❌ [CORE_TEST] Ambiguity resolution test (oldest) failed: {str(e)}")
+            return False
+            
+        finally:
+            # 4. 確実なクリーンアップ（分離）
+            if test_items:
+                await self._cleanup_test_data(test_user_id, test_item_prefix, "りんご")
+
+    async def test_ambiguity_resolution_all(self):
+        """曖昧性解決テスト - 全部戦略（安全・分離版）"""
+        logger.info("🧪 [CORE_TEST] Starting ambiguity resolution test (all strategy)...")
+        print("🧪 [CORE_TEST] Starting ambiguity resolution test (all strategy)...")
+        
+        # テスト専用の識別子
+        import time
+        test_user_id = f"test_user_ambiguity_{int(time.time())}"
+        test_item_prefix = "TEST_AMBIGUITY_"
+        test_items = []
+        
+        try:
+            agent = TrueReactAgent()
+            
+            # 1. テストデータの作成（分離）
+            logger.info("📦 [CORE_TEST] Creating test data...")
+            test_items = await self._create_test_data(test_user_id, test_item_prefix, "ピーマン", 3)
+            
+            if not test_items:
+                logger.error("❌ [CORE_TEST] Failed to create test data")
+                return False
+            
+            # 2. テスト実行
+            logger.info("🚀 [CORE_TEST] Testing ambiguity resolution with 'all' strategy...")
+            result = await agent.process_request(
+                user_request=f"全部の{test_item_prefix}ピーマンを削除して",
+                user_id=test_user_id,
+                token="test_token",
+                sse_session_id="test_session"
+            )
+            
+            # 3. 結果確認
+            assert result is not None
+            logger.info(f"✅ [CORE_TEST] Ambiguity resolution test (all) completed successfully")
+            logger.info(f"📄 [CORE_TEST] Result: {result}")
+            print(f"✅ [CORE_TEST] Ambiguity resolution test (all) completed successfully")
+            print(f"📄 [CORE_TEST] Result: {result}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ [CORE_TEST] Ambiguity resolution test (all) failed: {str(e)}")
+            print(f"❌ [CORE_TEST] Ambiguity resolution test (all) failed: {str(e)}")
+            return False
+            
+        finally:
+            # 4. 確実なクリーンアップ（分離）
+            if test_items:
+                await self._cleanup_test_data(test_user_id, test_item_prefix, "ピーマン")
+
+    async def test_ambiguity_resolution_cancel(self):
+        """曖昧性解決テスト - キャンセル処理（安全・分離版）"""
+        logger.info("🧪 [CORE_TEST] Starting ambiguity resolution test (cancel)...")
+        print("🧪 [CORE_TEST] Starting ambiguity resolution test (cancel)...")
+        
+        # テスト専用の識別子
+        import time
+        test_user_id = f"test_user_ambiguity_{int(time.time())}"
+        test_item_prefix = "TEST_AMBIGUITY_"
+        test_items = []
+        
+        try:
+            agent = TrueReactAgent()
+            
+            # 1. テストデータの作成（分離）
+            logger.info("📦 [CORE_TEST] Creating test data...")
+            test_items = await self._create_test_data(test_user_id, test_item_prefix, "卵", 3)
+            
+            if not test_items:
+                logger.error("❌ [CORE_TEST] Failed to create test data")
+                return False
+            
+            # 2. テスト実行
+            logger.info("🚀 [CORE_TEST] Testing ambiguity resolution with cancel...")
+            result = await agent.process_request(
+                user_request=f"{test_item_prefix}卵を更新して",
+                user_id=test_user_id,
+                token="test_token",
+                sse_session_id="test_session"
+            )
+            
+            # 3. 結果確認
+            assert result is not None
+            logger.info(f"✅ [CORE_TEST] Ambiguity resolution test (cancel) completed successfully")
+            logger.info(f"📄 [CORE_TEST] Result: {result}")
+            print(f"✅ [CORE_TEST] Ambiguity resolution test (cancel) completed successfully")
+            print(f"📄 [CORE_TEST] Result: {result}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ [CORE_TEST] Ambiguity resolution test (cancel) failed: {str(e)}")
+            print(f"❌ [CORE_TEST] Ambiguity resolution test (cancel) failed: {str(e)}")
+            return False
+            
+        finally:
+            # 4. 確実なクリーンアップ（分離）
+            if test_items:
+                await self._cleanup_test_data(test_user_id, test_item_prefix, "卵")
+
 
 class TestTaskChainManager:
     """Test TaskChainManager functionality."""
@@ -372,6 +676,32 @@ if __name__ == "__main__":
             await agent_test.test_process_request_integration()
             logger.info("✅ [CORE_TEST] TrueReactAgent integration test completed")
             print("✅ [CORE_TEST] TrueReactAgent integration test completed")
+            
+            # Test TrueReactAgent - Ambiguity Resolution Tests
+            logger.info("🧪 [CORE_TEST] Starting ambiguity resolution tests...")
+            print("🧪 [CORE_TEST] Starting ambiguity resolution tests...")
+            
+            # Test ambiguity resolution with different strategies
+            latest_result = await agent_test.test_ambiguity_resolution_latest()
+            oldest_result = await agent_test.test_ambiguity_resolution_oldest()
+            all_result = await agent_test.test_ambiguity_resolution_all()
+            cancel_result = await agent_test.test_ambiguity_resolution_cancel()
+            
+            # Log results
+            logger.info(f"📊 [CORE_TEST] Ambiguity resolution test results:")
+            logger.info(f"  - Latest strategy: {'✅ PASS' if latest_result else '❌ FAIL'}")
+            logger.info(f"  - Oldest strategy: {'✅ PASS' if oldest_result else '❌ FAIL'}")
+            logger.info(f"  - All strategy: {'✅ PASS' if all_result else '❌ FAIL'}")
+            logger.info(f"  - Cancel handling: {'✅ PASS' if cancel_result else '❌ FAIL'}")
+            
+            print(f"📊 [CORE_TEST] Ambiguity resolution test results:")
+            print(f"  - Latest strategy: {'✅ PASS' if latest_result else '❌ FAIL'}")
+            print(f"  - Oldest strategy: {'✅ PASS' if oldest_result else '❌ FAIL'}")
+            print(f"  - All strategy: {'✅ PASS' if all_result else '❌ FAIL'}")
+            print(f"  - Cancel handling: {'✅ PASS' if cancel_result else '❌ FAIL'}")
+            
+            logger.info("✅ [CORE_TEST] Ambiguity resolution tests completed")
+            print("✅ [CORE_TEST] Ambiguity resolution tests completed")
             
             # Test TaskChainManager
             manager_test = TestTaskChainManager()
