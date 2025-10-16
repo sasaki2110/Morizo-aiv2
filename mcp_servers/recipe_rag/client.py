@@ -38,7 +38,6 @@ class RecipeRAGClient:
         load_dotenv()
         
         # 環境変数から3つのChromaDBのパスを取得
-        self.vector_db_path = os.getenv("CHROMA_PERSIST_DIRECTORY", "./recipe_vector_db")
         self.vector_db_path_main = os.getenv("CHROMA_PERSIST_DIRECTORY_MAIN", "./recipe_vector_db_main")
         self.vector_db_path_sub = os.getenv("CHROMA_PERSIST_DIRECTORY_SUB", "./recipe_vector_db_sub")
         self.vector_db_path_soup = os.getenv("CHROMA_PERSIST_DIRECTORY_SOUP", "./recipe_vector_db_soup")
@@ -46,7 +45,6 @@ class RecipeRAGClient:
         # 環境変数から埋め込みモデルを取得
         embedding_model = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
         self.embeddings = OpenAIEmbeddings(model=embedding_model)
-        self._vectorstore = None
         self._vectorstores = None
         
         # LLMクライアントの初期化
@@ -57,20 +55,6 @@ class RecipeRAGClient:
         self._search_engine = None
         self._menu_formatter = None
         self._llm_solver = None
-    
-    def _get_vectorstore(self) -> Chroma:
-        """ベクトルストアの取得（遅延初期化）"""
-        if self._vectorstore is None:
-            try:
-                self._vectorstore = Chroma(
-                    persist_directory=self.vector_db_path,
-                    embedding_function=self.embeddings
-                )
-                logger.info(f"ベクトルストアを読み込みました: {self.vector_db_path}")
-            except Exception as e:
-                logger.error(f"ベクトルストア読み込みエラー: {e}")
-                raise
-        return self._vectorstore
     
     def _get_vectorstores(self) -> Dict[str, Chroma]:
         """3つのベクトルストアの取得（遅延初期化）"""
@@ -99,13 +83,6 @@ class RecipeRAGClient:
                 raise
         return self._vectorstores
     
-    def _get_search_engine(self) -> RecipeSearchEngine:
-        """検索エンジンの取得（遅延初期化）"""
-        if self._search_engine is None:
-            vectorstore = self._get_vectorstore()
-            self._search_engine = RecipeSearchEngine(vectorstore)
-        return self._search_engine
-    
     def _get_search_engines(self) -> Dict[str, RecipeSearchEngine]:
         """3つの検索エンジンの取得（遅延初期化）"""
         if not hasattr(self, '_search_engines') or self._search_engines is None:
@@ -129,30 +106,6 @@ class RecipeRAGClient:
         if self._llm_solver is None:
             self._llm_solver = LLMConstraintSolver(self.llm_client, self.llm_model)
         return self._llm_solver
-    
-    async def search_similar_recipes(
-        self,
-        ingredients: List[str],
-        menu_type: str,
-        excluded_recipes: List[str] = None,
-        limit: int = 5
-    ) -> List[Dict[str, Any]]:
-        """
-        在庫食材に基づく類似レシピ検索（従来の単一ベクトルDB検索）
-        
-        Args:
-            ingredients: 在庫食材リスト
-            menu_type: メニュータイプ
-            excluded_recipes: 除外するレシピタイトル
-            limit: 検索結果の最大件数
-        
-        Returns:
-            検索結果のリスト
-        """
-        search_engine = self._get_search_engine()
-        return await search_engine.search_similar_recipes(
-            ingredients, menu_type, excluded_recipes, limit
-        )
     
     async def search_recipes_by_category(
         self,
