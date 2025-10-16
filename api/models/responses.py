@@ -6,7 +6,7 @@ Pydanticによるレスポンスデータの型定義
 """
 
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 
 class ChatResponse(BaseModel):
@@ -59,3 +59,18 @@ class SSEEvent(BaseModel):
     type: str = Field(..., description="イベントタイプ")
     data: Dict[str, Any] = Field(..., description="イベントデータ")
     timestamp: str = Field(..., description="イベント時刻")
+
+
+class SavedRecipe(BaseModel):
+    """保存されたレシピ"""
+    title: str = Field(..., description="レシピのタイトル")
+    category: str = Field(..., description="レシピのカテゴリ")
+    history_id: str = Field(..., description="保存されたレシピ履歴のID")
+
+
+class RecipeAdoptionResponse(BaseModel):
+    """レシピ採用通知レスポンス（複数対応）"""
+    success: bool = Field(..., description="処理成功フラグ")
+    message: str = Field(..., description="レスポンスメッセージ")
+    saved_recipes: List[SavedRecipe] = Field(..., description="保存されたレシピのリスト")
+    total_saved: int = Field(..., description="保存されたレシピ数")

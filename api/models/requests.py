@@ -6,7 +6,7 @@ Pydanticによるリクエストデータの型定義とバリデーション
 """
 
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional
+from typing import Optional, List
 
 
 class ChatRequest(BaseModel):
@@ -51,3 +51,41 @@ class InventoryRequest(BaseModel):
 class HealthRequest(BaseModel):
     """ヘルスチェックリクエスト"""
     check_services: Optional[bool] = Field(False, description="サービス状態の確認")
+
+
+class RecipeItem(BaseModel):
+    """個別レシピアイテム"""
+    title: str = Field(
+        ..., 
+        description="レシピのタイトル", 
+        min_length=1, 
+        max_length=255
+    )
+    category: str = Field(
+        ..., 
+        description="レシピのカテゴリ",
+        pattern="^(main_dish|side_dish|soup)$"
+    )
+    menu_source: str = Field(
+        ..., 
+        description="メニューの出典",
+        pattern="^(llm_menu|rag_menu|manual)$"
+    )
+    url: Optional[str] = Field(
+        None, 
+        description="レシピのURL（Web検索から採用した場合）"
+    )
+
+
+class RecipeAdoptionRequest(BaseModel):
+    """レシピ採用通知リクエスト（複数対応）"""
+    recipes: List[RecipeItem] = Field(
+        ..., 
+        description="採用されたレシピのリスト",
+        min_length=1,
+        max_length=3  # 主菜・副菜・汁物の最大3つ
+    )
+    token: Optional[str] = Field(
+        None, 
+        description="認証トークン（ヘッダーからも取得可能）"
+    )
