@@ -8,6 +8,7 @@ ConfirmationService - 確認プロセスサービス
 
 from typing import Dict, Any, List, Optional, Union, TYPE_CHECKING
 from config.loggers import GenericLogger
+from .tool_name_converter import ToolNameConverter
 
 if TYPE_CHECKING:
     from core.models import Task
@@ -423,6 +424,8 @@ class ConfirmationService:
                 additional_params["quantity"] = int(match.group(1))
                 break
         
+        return additional_params
+        
     async def _update_tasks(
         self, 
         ambiguous_tasks: List[AmbiguityInfo], 
@@ -482,8 +485,8 @@ class ConfirmationService:
                 # Taskオブジェクトを作成
                 updated_task = Task(
                     id=task_info.task_id,
-                    service=self._get_service_from_tool(new_tool),
-                    method=self._get_method_from_tool(new_tool),
+                    service=ToolNameConverter.get_service_from_tool(new_tool),
+                    method=ToolNameConverter.get_method_from_tool(new_tool),
                     parameters=updated_parameters,
                     dependencies=[]
                 )
@@ -496,64 +499,3 @@ class ConfirmationService:
         except Exception as e:
             self.logger.error(f"❌ [ConfirmationService] Error in _update_tasks: {e}")
             return []
-
-    def _get_service_from_tool(self, tool_name: str) -> str:
-        """
-        ツール名からサービス名を取得
-        
-        Args:
-            tool_name: ツール名（例: "inventory_update_by_name"）
-        
-        Returns:
-            サービス名（例: "inventory_service"）
-        """
-        # ツール名の最初の部分をサービス名として使用
-        if tool_name.startswith("inventory_"):
-            return "inventory_service"
-        elif tool_name.startswith("recipe_"):
-            return "recipe_service"
-        elif tool_name.startswith("menu_"):
-            return "menu_service"
-        else:
-            # デフォルトは最初の部分を_serviceに変換
-            parts = tool_name.split("_")
-            if len(parts) > 1:
-                return f"{parts[0]}_service"
-            return "unknown_service"
-    
-    def _get_method_from_tool(self, tool_name: str) -> str:
-        """
-        ツール名からメソッド名を取得
-        
-        Args:
-            tool_name: ツール名（例: "inventory_update_by_name"）
-        
-        Returns:
-            メソッド名（例: "update_inventory"）
-        """
-        # ツール名からメソッド名を推測
-        if tool_name.startswith("inventory_"):
-            if "update" in tool_name:
-                return "update_inventory"
-            elif "delete" in tool_name:
-                return "delete_inventory"
-            elif "add" in tool_name:
-                return "add_inventory"
-            elif "get" in tool_name:
-                return "get_inventory"
-        elif tool_name.startswith("recipe_"):
-            if "generate" in tool_name:
-                return "generate_recipe"
-            elif "get" in tool_name:
-                return "get_recipe"
-        elif tool_name.startswith("menu_"):
-            if "generate" in tool_name:
-                return "generate_menu"
-            elif "get" in tool_name:
-                return "get_menu"
-        
-        # デフォルトはツール名の2番目の部分以降を使用
-        parts = tool_name.split("_")
-        if len(parts) > 1:
-            return "_".join(parts[1:])
-        return tool_name
