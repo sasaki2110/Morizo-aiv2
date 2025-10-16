@@ -98,25 +98,3 @@ class LLMClient:
             }
         ]
     
-    def get_available_tools_description(self) -> str:
-        """
-        利用可能なツールの説明を取得
-        
-        Returns:
-            ツール説明の文字列
-        """
-        try:
-            self.logger.info(f"🔧 [LLMClient] Getting available tools description")
-            
-            # TODO: ServiceCoordinator経由で取得するように修正予定
-            # 現在は基本的な実装
-            description_text = "利用可能なツール:\n"
-            description_text += "- inventory_list: ユーザーの全在庫アイテムを取得\n"
-            description_text += "- generate_menu_plan: 在庫食材から献立構成を生成\n"
-            
-            self.logger.info(f"✅ [LLMClient] Tools description generated successfully")
-            return description_text
-            
-        except Exception as e:
-            self.logger.error(f"❌ [LLMClient] Error in get_available_tools_description: {e}")
-            return "ツール情報の取得に失敗しました。"

@@ -93,48 +93,6 @@ class LLMService:
             self.logger.info(f"📊 [LLMService] Menu data size: {len(str(menu_data))} characters")
         return response, menu_data
     
-    async def solve_constraints(
-        self, 
-        candidates: List[Dict], 
-        constraints: Dict
-    ) -> Dict:
-        """
-        制約解決（子ファイル委譲）
-        
-        Args:
-            candidates: 候補リスト
-            constraints: 制約条件
-        
-        Returns:
-            制約解決結果
-        """
-        try:
-            self.logger.info(f"🔧 [LLMService] Solving constraints for {len(candidates)} candidates")
-            
-            # TODO: 実際の制約解決ロジックを実装
-            # 現在は基本的な実装
-            result = {
-                "selected": candidates[0] if candidates else {},
-                "reason": "制約解決により選択されました"
-            }
-            
-            self.logger.info(f"✅ [LLMService] Constraints solved successfully")
-            
-            return result
-            
-        except Exception as e:
-            self.logger.error(f"❌ [LLMService] Error in solve_constraints: {e}")
-            return {"selected": {}, "reason": "エラーが発生しました"}
-    
-    def get_available_tools_description(self) -> str:
-        """
-        利用可能なツールの説明を取得
-        
-        Returns:
-            ツール説明の文字列
-        """
-        return self.llm_client.get_available_tools_description()
-    
     def create_dynamic_prompt(
         self, 
         base_prompt: str, 

@@ -35,10 +35,10 @@ class RecipeLLM:
         
         self.logger.info(f"🤖 [LLM] Initialized with model: {self.model}, temperature: {self.temperature}")
     
-    # TODO: 食材重複抑止機能の実装
-    # - LLMまたはRAGから複数提案された献立から、食材が重複しない組み合わせを推論する機能
-    # - AI制約解決エンジンによる最適選択機能
-    # - 複数候補から食材重複を避ける最適な組み合わせを選択
+    # 食材重複抑止機能
+    # - プロンプト内で「食材の重複を避ける」と明示的に指示
+    # - LLMが1回の推論で主菜・副菜・汁物の3品構成を生成
+    # - 各料理間で食材の重複を避けるように設計
     # - 在庫食材を最大限活用し、バランスの良い献立構成を実現
     
     async def generate_menu_titles(
@@ -58,10 +58,11 @@ class RecipeLLM:
         Returns:
             生成された献立タイトルの候補リスト
         
-        TODO: 複数提案機能の実装
-        - 食材重複抑止のため、複数の献立候補を生成する必要がある
-        - 現在は1つの献立のみ生成しているが、3-5個の候補を生成すべき
-        - 各候補は主菜・副菜・汁物の3品構成で、食材の重複を避ける
+        実装済み: 食材重複抑止機能
+        - プロンプト内で「食材の重複を避ける」と明示的に指示（_build_menu_prompt参照）
+        - 1回のLLM推論で主菜・副菜・汁物の3品構成を生成
+        - 各料理間で食材が重複しないように設計されたプロンプトを使用
+        - LLMの推論能力により、献立内の食材バランスを自動調整
         """
         try:
             self.logger.info(f"🧠 [LLM] Generating menu titles for {menu_type} with {len(inventory_items)} ingredients")
