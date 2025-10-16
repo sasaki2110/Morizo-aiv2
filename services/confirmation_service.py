@@ -9,38 +9,11 @@ ConfirmationService - 確認プロセスサービス
 from typing import Dict, Any, List, Optional, Union, TYPE_CHECKING
 from config.loggers import GenericLogger
 from .tool_name_converter import ToolNameConverter
+from .confirmation.models import AmbiguityInfo, AmbiguityResult, ConfirmationResult
+from .confirmation.response_parser import UserResponseParser
 
 if TYPE_CHECKING:
     from core.models import Task
-
-
-class AmbiguityInfo:
-    """曖昧性情報クラス"""
-    
-    def __init__(self, task_id: str, tool_name: str, ambiguity_type: str, details: Dict[str, Any], original_parameters: Dict[str, Any] = None):
-        self.task_id = task_id
-        self.tool_name = tool_name
-        self.ambiguity_type = ambiguity_type
-        self.details = details
-        self.original_parameters = original_parameters or {}
-        self.is_ambiguous = True
-
-
-class AmbiguityResult:
-    """曖昧性検出結果クラス"""
-    
-    def __init__(self, requires_confirmation: bool, ambiguous_tasks: List[AmbiguityInfo]):
-        self.requires_confirmation = requires_confirmation
-        self.ambiguous_tasks = ambiguous_tasks
-
-
-class ConfirmationResult:
-    """確認プロセス結果クラス"""
-    
-    def __init__(self, is_cancelled: bool, updated_tasks: List[Any], confirmation_context: Dict[str, Any]):
-        self.is_cancelled = is_cancelled
-        self.updated_tasks = updated_tasks
-        self.confirmation_context = confirmation_context
 
 
 class ConfirmationService:
@@ -50,6 +23,7 @@ class ConfirmationService:
         """初期化"""
         self.tool_router = tool_router
         self.logger = GenericLogger("service", "confirmation")
+        self.response_parser = UserResponseParser()
     
     async def detect_ambiguity(
         self, 
@@ -122,7 +96,7 @@ class ConfirmationService:
             self.logger.info(f"🔧 [ConfirmationService] Processing confirmation for task: {ambiguity_info.task_id}")
             
             # ユーザー応答の解析
-            parsed_response = await self._parse_user_response(user_response, ambiguity_info)
+            parsed_response = self.response_parser.parse_response(user_response)
             
             # タスクの更新 - 元のタスク情報を渡す
             updated_tasks = await self._update_tasks([ambiguity_info], parsed_response, original_tasks)
@@ -301,131 +275,6 @@ class ConfirmationService:
         
         return message
     
-    async def _parse_user_response(
-        self, 
-        user_response: str, 
-        ambiguity_info: AmbiguityInfo
-    ) -> Dict[str, Any]:
-        """
-        ユーザー応答の解析（キーワードマッチング強化版）
-        
-        Args:
-            user_response: ユーザー応答
-            ambiguity_info: 曖昧性情報
-        
-        Returns:
-            解析結果
-        """
-        try:
-            self.logger.info(f"🔧 [ConfirmationService] Parsing user response")
-            
-            # 1. キャンセル判定（強化版）
-            is_cancelled = self._check_cancellation(user_response)
-            
-            # 2. 戦略判定（強化版）
-            strategy = self._determine_strategy(user_response)
-            
-            # 3. 追加パラメータ抽出
-            additional_params = self._extract_additional_params(user_response)
-            
-            parsed_response = {
-                "is_cancelled": is_cancelled,
-                "strategy": strategy,
-                "additional_params": additional_params,
-                "raw_response": user_response
-            }
-            
-            self.logger.info(f"✅ [ConfirmationService] User response parsed successfully")
-            
-            return parsed_response
-            
-        except Exception as e:
-            self.logger.error(f"❌ [ConfirmationService] Error in _parse_user_response: {e}")
-            return {"is_cancelled": True, "strategy": "by_id", "raw_response": user_response}
-    
-    def _check_cancellation(self, user_response: str) -> bool:
-        """
-        キャンセル判定（強化版）
-        
-        Args:
-            user_response: ユーザー応答
-        
-        Returns:
-            キャンセル判定結果
-        """
-        # より多くのキャンセルキーワードを追加
-        cancel_keywords = [
-            "キャンセル", "やめる", "中止", "止める", "やめ", 
-            "やっぱり", "やっぱ", "やめとく", "やめときます",
-            "やめます", "やめましょう", "やめよう", "やめようか",
-            "やめ", "やめろ", "やめて", "やめない", "やめないで"
-        ]
-        
-        return any(keyword in user_response for keyword in cancel_keywords)
-    
-    def _determine_strategy(self, user_response: str) -> str:
-        """
-        戦略判定（強化版）
-        
-        Args:
-            user_response: ユーザー応答
-        
-        Returns:
-            戦略
-        """
-        # より詳細なキーワードマッチング
-        latest_keywords = ["最新", "新しい", "一番新しい", "新", "最新の", "新しいの", "一番新"]
-        oldest_keywords = ["古い", "古", "一番古い", "古いの", "古の", "一番古"]
-        all_keywords = ["全部", "すべて", "全て", "全部の", "すべての", "全ての", "全部で", "すべてで"]
-        id_keywords = ["ID", "id", "アイディー", "アイディ", "番号"]
-        
-        if any(keyword in user_response for keyword in latest_keywords):
-            return "by_name_latest"
-        elif any(keyword in user_response for keyword in oldest_keywords):
-            return "by_name_oldest"
-        elif any(keyword in user_response for keyword in all_keywords):
-            return "by_name"
-        elif any(keyword in user_response for keyword in id_keywords):
-            return "by_id"
-        else:
-            # デフォルトは by_name（曖昧性チェック削除）
-            return "by_name"
-    
-    def _extract_additional_params(self, user_response: str) -> Dict[str, Any]:
-        """
-        追加パラメータの抽出
-        
-        Args:
-            user_response: ユーザー応答
-        
-        Returns:
-            追加パラメータ
-        """
-        import re
-        
-        additional_params = {}
-        
-        # 数量の抽出（正規表現使用）
-        quantity_patterns = [
-            r'(\d+)\s*個',
-            r'(\d+)\s*本',
-            r'(\d+)\s*枚',
-            r'(\d+)\s*つ',
-            r'(\d+)\s*パック',
-            r'(\d+)\s*袋',
-            r'(\d+)\s*箱',
-            r'(\d+)\s*缶',
-            r'(\d+)\s*瓶'
-        ]
-        
-        for pattern in quantity_patterns:
-            match = re.search(pattern, user_response)
-            if match:
-                additional_params["quantity"] = int(match.group(1))
-                break
-        
-        return additional_params
-        
     async def _update_tasks(
         self, 
         ambiguous_tasks: List[AmbiguityInfo], 

@@ -292,8 +292,8 @@ async def test_user_response_parsing():
         ]
         
         for response_text, expected_strategy in test_responses:
-            # プライベートメソッドをテスト（実際の実装では公開メソッド経由でテスト）
-            parsed_response = await confirmation_service._parse_user_response(response_text, ambiguity_info)
+            # 新しいUserResponseParserを使用
+            parsed_response = confirmation_service.response_parser.parse_response(response_text)
             
             if isinstance(parsed_response, dict):
                 is_cancelled = parsed_response.get("is_cancelled", False)
