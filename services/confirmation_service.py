@@ -270,12 +270,9 @@ class ConfirmationService:
                             )
                         else:
                             self.logger.info(f"✅ [ConfirmationService] No ambiguity: success={result.get('success')}, data_count={len(result.get('result', {}).get('data', []))}")
-                    elif item_name and strategy not in ["by_name", "by_name_all"]:
+                    elif item_name and strategy not in ["by_name"]:
                         # 明確な戦略の場合は曖昧性チェックをスキップ
                         self.logger.info(f"✅ [ConfirmationService] Skipping ambiguity check for strategy: {strategy}")
-                    elif item_name and strategy == "by_name_all":
-                        # by_name_all戦略の場合は曖昧性チェックをスキップ
-                        self.logger.info(f"✅ [ConfirmationService] Skipping ambiguity check for by_name_all strategy")
             
             return None
             

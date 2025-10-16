@@ -142,8 +142,6 @@ class ToolRouter:
                     tool_name = "inventory_update_by_name"
                 elif strategy == "by_name_all":  # 全部処理
                     tool_name = "inventory_update_by_name"
-                elif strategy == "by_name_with_ambiguity_check":  # 曖昧性チェック付き
-                    tool_name = "inventory_update_by_name_with_ambiguity_check"
                 # by_idの場合は元のtool_name（inventory_update_by_id）を使用
                 
                 self.logger.info(f"🔧 [ToolRouter] Strategy '{strategy}' → tool: {tool_name}")
@@ -160,8 +158,6 @@ class ToolRouter:
                     tool_name = "inventory_delete_by_name"
                 elif strategy == "by_name_all":  # 全部処理
                     tool_name = "inventory_delete_by_name"
-                elif strategy == "by_name_with_ambiguity_check":  # 曖昧性チェック付き
-                    tool_name = "inventory_delete_by_name_with_ambiguity_check"
                 # by_idの場合は元のtool_name（inventory_delete_by_id）を使用
                 
                 self.logger.info(f"🔧 [ToolRouter] Strategy '{strategy}' → tool: {tool_name}")
@@ -223,8 +219,6 @@ class ToolRouter:
                     descriptions[tool_name] = "名前指定での最古アイテム更新（FIFO原則）"
                 elif tool_name == "inventory_update_by_name_latest":
                     descriptions[tool_name] = "名前指定での最新アイテム更新"
-                elif tool_name == "inventory_update_by_name_with_ambiguity_check":
-                    descriptions[tool_name] = "名前指定での在庫アイテム更新（曖昧性チェック付き）"
                 elif tool_name == "inventory_delete_by_id":
                     descriptions[tool_name] = "指定したIDの在庫アイテムを削除"
                 elif tool_name == "inventory_delete_by_name":

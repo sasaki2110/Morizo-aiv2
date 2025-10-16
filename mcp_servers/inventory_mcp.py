@@ -223,30 +223,6 @@ async def inventory_update_by_name_latest(
     return await advanced.update_by_name_latest(client, user_id, item_name, quantity, unit, storage_location, expiry_date)
 
 
-@mcp.tool()
-async def inventory_update_by_name_with_ambiguity_check(
-    user_id: str,
-    item_name: str,
-    quantity: Optional[float] = None,
-    unit: Optional[str] = None,
-    storage_location: Optional[str] = None,
-    expiry_date: Optional[str] = None,
-    token: str = ""
-) -> Dict[str, Any]:
-    """名前指定での在庫アイテム更新（曖昧性チェック付き）"""
-    client = get_authenticated_client(user_id, token)
-    return await crud.update_item_by_name_with_ambiguity_check(client, user_id, item_name, quantity, unit, storage_location, expiry_date)
-
-
-@mcp.tool()
-async def inventory_delete_by_name_with_ambiguity_check(
-    user_id: str,
-    item_name: str,
-    token: str = ""
-) -> Dict[str, Any]:
-    """名前指定での在庫アイテム削除（曖昧性チェック付き）"""
-    client = get_authenticated_client(user_id, token)
-    return await crud.delete_item_by_name_with_ambiguity_check(client, user_id, item_name)
 
 
 @mcp.tool()
