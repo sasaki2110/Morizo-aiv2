@@ -6,11 +6,12 @@
 
 ## 対象範囲
 
-- LLM推論で主菜2件生成（主要食材考慮）
-- RAG検索で主菜3件検索（主要食材考慮）
+- LLM推論で主菜2件生成（主要食材考慮、重複回避）
+- RAG検索で主菜3件検索（主要食材考慮、重複回避）
 - MCP統合レイヤー（LLM + RAG統合）
 - レスポンスフォーマッター（5件表示）
 - レスポンス処理統合
+- **履歴取得機能（重複回避用）**
 
 ## 実装計画
 
@@ -23,6 +24,7 @@
 - プロンプトを修正し、主菜タイトルを2件生成するよう指示
 - **主要食材を考慮した提案**
 - **各提案に使用食材リストを含める**
+- **重複回避機能（excluded_recipesパラメータを活用）**
 
 **実装例**:
 ```python
@@ -40,14 +42,19 @@ async def generate_main_dish_candidates(
     if main_ingredient:
         main_ingredient_text = f"\n重要: {main_ingredient}を必ず使用してください。"
     
+    # 除外レシピの追加
+    excluded_text = ""
+    if excluded_recipes:
+        excluded_text = f"\n除外レシピ（提案しないでください）: {', '.join(excluded_recipes)}"
+    
     prompt = f"""
 在庫食材: {', '.join(inventory_items)}
-献立タイプ: {menu_type}{main_ingredient_text}
+献立タイプ: {menu_type}{main_ingredient_text}{excluded_text}
 
 以下の条件で主菜のタイトルを{count}件生成してください:
 1. 在庫食材のみを使用
 2. 独創的で新しいレシピタイトル
-3. 除外レシピは使用しない
+3. 除外レシピは絶対に使用しない
 4. 各提案に使用食材リストを含める
 
 以下のJSON形式で回答してください:
@@ -111,6 +118,7 @@ def _parse_main_dish_response(self, response_content: str) -> List[Dict[str, Any
 - 主菜のみ検索する新メソッド`search_main_dish_candidates()`を追加
 - **主要食材を考慮した検索**
 - **各提案に使用食材リストを含める**
+- **重複回避機能（excluded_recipesパラメータを活用）**
 
 **実装例**:
 ```python
@@ -124,7 +132,8 @@ async def search_main_dish_candidates(
 ) -> List[Dict[str, Any]]:
     """主菜候補を検索（主要食材考慮）"""
     try:
-        logger.info(f"🔍 [RAG] Searching {limit} main dish candidates with main ingredient: {main_ingredient}")
+        logger.info(f"🔍 [RAG] Searching {limit} main dish candidates")
+        logger.info(f"🔍 [RAG] Main ingredient: {main_ingredient}, Excluded: {len(excluded_recipes or [])} recipes")
         
         search_engine = self._get_search_engines()["main"]
         
@@ -133,6 +142,7 @@ async def search_main_dish_candidates(
         if main_ingredient:
             search_query.insert(0, main_ingredient)  # 主要食材を優先
         
+        # RAG検索（除外レシピを渡す）
         results = await search_engine.search_similar_recipes(
             search_query, menu_type, excluded_recipes, limit
         )
@@ -158,6 +168,7 @@ async def search_main_dish_candidates(
 - LLMとRAGの結果を統合する新ツール`generate_main_dish_proposals()`を追加
 - LLM 2件 + RAG 3件を統合して5件の主菜候補リストを返す
 - **主要食材パラメータを追加**
+- **重複回避機能（excluded_recipesパラメータをLLMとRAGに渡す）**
 
 **実装例**:
 ```python
@@ -170,20 +181,22 @@ async def generate_main_dish_proposals(
     excluded_recipes: List[str] = None,
     token: str = None
 ) -> Dict[str, Any]:
-    """主菜5件提案（LLM 2件 + RAG 3件、主要食材考慮）"""
-    logger.info(f"🔧 [RECIPE] Starting generate_main_dish_proposals for user: {user_id}, main_ingredient: {main_ingredient}")
+    """主菜5件提案（LLM 2件 + RAG 3件、主要食材考慮、重複回避）"""
+    logger.info(f"🔧 [RECIPE] Starting generate_main_dish_proposals")
+    logger.info(f"  User: {user_id}, Main ingredient: {main_ingredient}")
+    logger.info(f"  Excluded recipes: {len(excluded_recipes or [])} recipes")
     
     try:
         # 認証済みクライアントを取得
         client = get_authenticated_client(user_id, token)
         logger.info(f"🔐 [RECIPE] Authenticated client created for user: {user_id}")
         
-        # LLMで2件生成（主要食材考慮）
+        # LLMで2件生成（除外レシピを渡す）
         llm_result = await llm_client.generate_main_dish_candidates(
             inventory_items, menu_type, main_ingredient, excluded_recipes, count=2
         )
         
-        # RAGで3件検索（主要食材考慮）
+        # RAGで3件検索（除外レシピを渡す）
         rag_result = await rag_client.search_main_dish_candidates(
             inventory_items, menu_type, main_ingredient, excluded_recipes, limit=3
         )
@@ -203,6 +216,7 @@ async def generate_main_dish_proposals(
                 "candidates": candidates,
                 "total": len(candidates),
                 "main_ingredient": main_ingredient,
+                "excluded_count": len(excluded_recipes or []),
                 "llm_count": len(llm_result.get("data", {}).get("candidates", [])),
                 "rag_count": len(rag_result)
             }
@@ -278,7 +292,108 @@ def format_main_dish_proposals(self, data: Dict[str, Any]) -> List[str]:
     return response_parts
 ```
 
-### 5. レスポンス処理の統合
+### 5. 履歴取得機能の追加（重複回避用）
+
+**修正ファイル**: `mcp_servers/recipe_history_crud.py`
+
+**変更内容**:
+- `get_recent_recipe_titles()` メソッドを追加
+- カテゴリ（main/sub/soup）と期間（日数）を指定してレシピタイトルリストを取得
+
+**実装例**:
+```python
+async def get_recent_recipe_titles(
+    self,
+    client: Client,
+    user_id: str,
+    category: str,  # "main", "sub", "soup"
+    days: int = 14  # デフォルト14日間
+) -> Dict[str, Any]:
+    """指定期間内のレシピタイトルを取得（重複回避用）
+    
+    Args:
+        client: Supabaseクライアント
+        user_id: ユーザーID
+        category: カテゴリ（"main", "sub", "soup"）
+        days: 重複回避期間（日数）
+    
+    Returns:
+        Dict[str, Any]: {"success": bool, "data": List[str]} レシピタイトルのリスト
+    """
+    try:
+        self.logger.info(f"📋 [CRUD] Getting recent {category} recipes for user: {user_id} (last {days} days)")
+        
+        # カテゴリのマッピング（将来の拡張用）
+        # 現状はtitleのみで判定するため、全レシピを取得
+        from datetime import datetime, timedelta
+        
+        cutoff_date = datetime.now() - timedelta(days=days)
+        
+        # 指定期間内のレシピを取得
+        result = client.table("recipe_historys")\
+            .select("title")\
+            .eq("user_id", user_id)\
+            .gte("cooked_at", cutoff_date.isoformat())\
+            .execute()
+        
+        # タイトルのリストを作成
+        titles = [item["title"] for item in result.data]
+        
+        self.logger.info(f"✅ [CRUD] Retrieved {len(titles)} recent {category} recipe titles")
+        return {"success": True, "data": titles}
+        
+    except Exception as e:
+        self.logger.error(f"❌ [CRUD] Failed to get recent recipe titles: {e}")
+        return {"success": False, "error": str(e), "data": []}
+```
+
+### 6. 履歴取得MCPツールの追加
+
+**修正ファイル**: `mcp_servers/recipe_history_mcp.py`
+
+**変更内容**:
+- `history_get_recent_titles()` ツールを追加
+- カテゴリと期間を指定して重複回避対象のタイトルリストを取得
+
+**実装例**:
+```python
+@mcp.tool()
+async def history_get_recent_titles(
+    user_id: str,
+    category: str,  # "main", "sub", "soup"
+    days: int = 14,
+    token: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    指定期間内のレシピタイトルを取得（重複回避用）
+    
+    Args:
+        user_id: ユーザーID
+        category: カテゴリ（"main", "sub", "soup"）
+        days: 重複回避期間（日数）
+        token: 認証トークン
+    
+    Returns:
+        Dict[str, Any]: レシピタイトルのリスト
+    """
+    logger.info(f"🔧 [RECIPE_HISTORY] Starting history_get_recent_titles for user: {user_id}, category: {category}, days: {days}")
+    
+    try:
+        client = get_authenticated_client(user_id, token)
+        logger.info(f"🔐 [RECIPE_HISTORY] Authenticated client created for user: {user_id}")
+        
+        result = await crud.get_recent_recipe_titles(client, user_id, category, days)
+        logger.info(f"✅ [RECIPE_HISTORY] history_get_recent_titles completed successfully")
+        logger.debug(f"📊 [RECIPE_HISTORY] Recent titles result: {result}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"❌ [RECIPE_HISTORY] Error in history_get_recent_titles: {e}")
+        return {"success": False, "error": str(e), "data": []}
+```
+
+### 7. レスポンス処理の統合
 
 **修正ファイル**: `services/llm/response_processor.py`
 
@@ -298,11 +413,14 @@ elif service_method == "recipe_service.generate_main_dish_proposals":
 2. `search_main_dish_candidates()`が3件の主菜を検索することを確認
 3. `generate_main_dish_proposals()`が5件統合することを確認
 4. **主要食材指定時の動作を確認**
+5. **`get_recent_recipe_titles()`が履歴タイトルを正しく取得することを確認**
+6. **`history_get_recent_titles()`がMCPツールとして正しく動作することを確認**
 
 ### 統合テスト
 1. LLM 2件 + RAG 3件が正しく統合されることを確認
 2. レスポンスが適切にフォーマットされることを確認
 3. **主要食材が正しく表示されることを確認**
+4. **重複回避機能が正しく動作することを確認（除外レシピが提案されない）**
 
 ## 制約事項
 - プランナーの修正は含まない（Phase 1Bで対応）
@@ -313,13 +431,16 @@ elif service_method == "recipe_service.generate_main_dish_proposals":
 - 主菜5件提案の基本機能が完成
 - LLMの独創性とRAGの伝統的レシピのバランスが取れる
 - **主要食材を考慮した提案でユーザーの意図に沿った提案**
+- **重複回避機能により、ユーザーが同じレシピを短期間に繰り返し見ることを防止**
 - Phase 1B以降の基盤となる
 
 ### To-dos
 
-- [ ] LLM推論で主菜2件を生成する generate_main_dish_candidates() メソッドを recipe_llm.py に追加（主要食材考慮）
-- [ ] RAG検索で主菜3件を検索する search_main_dish_candidates() メソッドを recipe_rag/client.py に追加（主要食材考慮）
-- [ ] LLMとRAGを統合する generate_main_dish_proposals() ツールを recipe_mcp.py に追加（主要食材パラメータ）
+- [ ] LLM推論で主菜2件を生成する generate_main_dish_candidates() メソッドを recipe_llm.py に追加（主要食材考慮、重複回避）
+- [ ] RAG検索で主菜3件を検索する search_main_dish_candidates() メソッドを recipe_rag/client.py に追加（主要食材考慮、重複回避）
+- [ ] LLMとRAGを統合する generate_main_dish_proposals() ツールを recipe_mcp.py に追加（主要食材パラメータ、重複回避）
 - [ ] 主菜5件候補を表示する format_main_dish_proposals() メソッドを response_formatters.py に追加（主要食材表示）
+- [ ] 履歴取得メソッド get_recent_recipe_titles() を recipe_history_crud.py に追加（重複回避用）
+- [ ] 履歴取得ツール history_get_recent_titles() を recipe_history_mcp.py に追加（重複回避用）
 - [ ] レスポンス処理に新サービスメソッドの処理を追加（response_processor.py）
-- [ ] Phase 1Aの統合テスト: LLM + RAG統合とレスポンス表示の確認
+- [ ] Phase 1Aの統合テスト: LLM + RAG統合とレスポンス表示の確認、重複回避機能の確認

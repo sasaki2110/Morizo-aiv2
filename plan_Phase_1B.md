@@ -6,10 +6,11 @@
 
 ## 対象範囲
 
-- プランナープロンプトの更新（新ツール認識）
+- プランナープロンプトの更新（新ツール認識、重複回避対応）
 - 動的タスク構築機能
 - コンテキスト管理（主要食材保存）
 - 曖昧性検出の拡張（主要食材未指定時）
+- **履歴取得タスクの追加（重複回避用）**
 
 ## 実装計画
 
@@ -21,39 +22,39 @@
 - `build_planning_prompt()`に新ツール`generate_main_dish_proposals`の説明を追加
 - ユーザー要求が「主菜を提案して」等の場合に新ツールを使用するよう指示
 - **主要食材パラメータの説明を追加**
+- **履歴取得ツール`history_get_recent_titles`の説明を追加**
 
 **実装箇所**: 43-47行目の`recipe_service`セクションに追加
 ```python
 - **recipe_service**: レシピ・献立サービス
-  - `generate_main_dish_proposals(inventory_items: list, user_id: str, main_ingredient: str, ...)`: 主菜5件を提案します（LLM 2件 + RAG 3件）。main_ingredientで主要食材を指定可能。主要食材が未指定の場合は曖昧性検出が発動し、ユーザーに「食材を指定する」または「指定せずに提案する」の選択肢を提示します。
+  - `generate_main_dish_proposals(inventory_items: list, user_id: str, main_ingredient: str, excluded_recipes: list, ...)`: 主菜5件を提案します（LLM 2件 + RAG 3件）。main_ingredientで主要食材を指定可能。excluded_recipesで重複回避対象のレシピタイトルを指定。主要食材が未指定の場合は曖昧性検出が発動し、ユーザーに「食材を指定する」または「指定せずに提案する」の選択肢を提示します。
   - `generate_menu_plan(inventory_items: list, user_id: str, ...)`: 在庫リストに基づき、LLMによる独創的な献立提案を行います。
   - `search_menu_from_rag(query: str, user_id: str, ...)`: RAGを使用して過去の献立履歴から類似の献立を検索します。
   - `search_recipes_from_web(recipe_name: str, ...)`: 指定された料理名のレシピをWeb検索し、URLを含む詳細情報を返します。
   - `get_recipe_history(user_id: str, ...)`: 過去の料理履歴を取得します。
+
+- **history_service**: レシピ履歴サービス
+  - `history_get_recent_titles(user_id: str, category: str, days: int, ...)`: 指定期間内のレシピタイトルを取得（重複回避用）。categoryは"main"/"sub"/"soup"、daysは日数。
 ```
 
 **追加するプロンプトルール**:
 ```python
-**主菜提案のタスク生成ルール**:
+**主菜提案のタスク生成ルール（重複回避対応）**:
 
-3. **主菜提案の場合**: ユーザーの要求が「主菜」「メイン」「主菜を提案して」等の主菜提案に関する場合、以下の2段階のタスク構成を使用してください：
+3. **主菜提案の場合**: ユーザーの要求が「主菜」「メイン」「主菜を提案して」等の主菜提案に関する場合、以下の3段階のタスク構成を使用してください：
    
    **例**:
-   - 「主菜を5件提案して」→ 2段階タスク構成
-   - 「レンコンを使った主菜を教えて」→ 2段階タスク構成
-   - 「メインを提案して」→ 2段階タスク構成
+   - 「主菜を5件提案して」→ 3段階タスク構成
+   - 「レンコンを使った主菜を教えて」→ 3段階タスク構成
+   - 「メインを提案して」→ 3段階タスク構成
 
    a. **task1**: `inventory_service.get_inventory()` を呼び出し、現在の在庫をすべて取得する。
-   b. **task2**: `recipe_service.generate_main_dish_proposals()` を呼び出す。その際、ステップ1で取得した在庫情報を `inventory_items` パラメータに設定する。
+   b. **task2**: `history_get_recent_titles(user_id, "main", 14)` を呼び出し、14日間の主菜履歴を取得する。
+   c. **task3**: `recipe_service.generate_main_dish_proposals()` を呼び出す。その際、ステップ1で取得した在庫情報を `inventory_items` パラメータに、ステップ2で取得した履歴タイトルを `excluded_recipes` パラメータに設定する。
 
-**主要食材の抽出ルール**:
-- ユーザー要求に「○○を使った」「○○で」「○○を主に」等の表現がある場合、○○を `main_ingredient` パラメータに設定してください。
-- 例: 「レンコンを使った主菜を提案して」→ `main_ingredient: "レンコン"`
-- 例: 「キャベツでメインを作って」→ `main_ingredient: "キャベツ"`
-- 例: 「主菜を提案して」→ `main_ingredient: null` (曖昧性検出が発動し、ユーザーに選択肢を提示)
-
-**パラメータ注入のルール**:
-- task1の結果をtask2で使用する場合 → `"inventory_items": "task1.result"`
+**パラメータ注入のルール（重複回避対応）**:
+- task1の結果をtask3で使用する場合 → `"inventory_items": "task1.result"`
+- task2の結果をtask3で使用する場合 → `"excluded_recipes": "task2.result.data"` （dataフィールドから取得）
 - 主要食材がある場合 → `"main_ingredient": "抽出された食材名"`
 - 主要食材がない場合 → `"main_ingredient": null`
 ```
@@ -303,6 +304,7 @@ def _update_task_with_main_ingredient(
 **変更内容**:
 - `service_method_mapping`に新しいマッピングを追加
 - Phase 1Aで追加された`generate_main_dish_proposals`ツールを`recipe_service`のメソッドとしてマッピング
+- **履歴取得ツール`history_get_recent_titles`のマッピングを追加**
 
 **実装例**:
 ```python
@@ -330,6 +332,9 @@ class ToolRouter:
             
             # Phase 1Aで追加された新ツールのマッピング
             ("recipe_service", "generate_main_dish_proposals"): "generate_main_dish_proposals",
+            
+            # RecipeHistoryService のマッピング（重複回避用）
+            ("history_service", "history_get_recent_titles"): "history_get_recent_titles",
         }
         
         self.logger = GenericLogger("service", "tool_router")
@@ -380,11 +385,11 @@ class ToolRouter:
 
 ### To-dos
 
-- [ ] プランナープロンプトに新ツールの説明を追加（prompt_manager.py）
+- [ ] プランナープロンプトに新ツールの説明を追加（prompt_manager.py、重複回避対応）
 - [ ] 動的タスク構築機能を core/dynamic_task_builder.py に実装
 - [ ] コンテキスト管理機能を core/context_manager.py に実装
 - [ ] 主菜提案の曖昧性検出機能を ambiguity_detector.py に追加
 - [ ] 主要食材選択の確認プロセス処理を response_parser.py に追加
 - [ ] TrueReactAgentに動的タスク構築機能を統合（agent.py）
-- [ ] ToolRouterのservice_method_mappingに新ツールマッピングを追加（tool_router.py）
-- [ ] Phase 1Bの統合テスト: プランナー・タスク設計拡張の動作確認
+- [ ] ToolRouterのservice_method_mappingに新ツールマッピングを追加（tool_router.py、履歴取得ツール含む）
+- [ ] Phase 1Bの統合テスト: プランナー・タスク設計拡張の動作確認、重複回避機能の確認
