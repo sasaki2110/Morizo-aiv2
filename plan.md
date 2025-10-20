@@ -1,60 +1,62 @@
-## **プランモードでの履歴管理機能実装プラン**
+# Phase 1: 主菜5件提案機能の追加（分割版）
 
-### **実装範囲**
-- 採用レシピの特定機能
-- レシピ履歴の保存機能
-- 2週間重複回避機能
+## 概要
 
-### **実装プラン**
+主菜5件提案機能を3つのフェーズに分割して実装します。Phase 1Aで基本機能、Phase 1Bでプランナー・タスク設計拡張、Phase 1Cで統合テストを実施します。
 
-#### **Phase 1: 採用通知API** ✅ **完了**
-- 新しいエンドポイント `/api/recipe/adopt` の追加 ✅
-- リクエストモデル `RecipeAdoptionRequest` の作成 ✅
-- レスポンスモデル `RecipeAdoptionResponse` の作成 ✅
-- フロントエンドからの採用通知受信 ✅
-- menu_source → source マッピング機能 ✅
+## 分割構成
 
-**実装詳細:**
-- `api/models/requests.py`: `RecipeAdoptionRequest`クラス追加
-- `api/models/responses.py`: `RecipeAdoptionResponse`クラス追加
-- `api/routes/recipe.py`: `/api/recipe/adopt` POSTエンドポイント実装
-- `api/routes/__init__.py`: recipeルーター登録
-- `main.py`: FastAPIアプリにrecipeルーター追加
-- `api/models/__init__.py`: 新モデルのエクスポート
+### Phase 1A: 基本機能実装
+- LLM推論で主菜2件生成（主要食材考慮）
+- RAG検索で主菜3件検索（主要食材考慮）
+- MCP統合レイヤー（LLM + RAG統合）
+- レスポンスフォーマッター（5件表示）
+- レスポンス処理統合
 
-**エンドポイント仕様:**
-```
-POST /api/recipe/adopt
-Content-Type: application/json
-Authorization: Bearer <token>
+### Phase 1B: プランナー・タスク設計拡張
+- プランナープロンプトの更新（新ツール認識）
+- 動的タスク構築機能
+- コンテキスト管理（主要食材保存）
+- 曖昧性検出の拡張（主要食材未指定時の柔軟な選択肢提示）
 
-{
-  "title": "牛乳と卵のフレンチトースト",
-  "category": "main_dish",
-  "menu_source": "llm_menu",
-  "url": "https://cookpad.com/recipe/12345"
-}
+### Phase 1C: 統合テスト
+- Phase 1A + Phase 1Bの統合テスト
+- ユーザー要求から5件提案までの一連の流れ確認
+- 主要食材指定・未指定の両方のケース
+- パフォーマンステスト
 
-Response:
-{
-  "success": true,
-  "message": "レシピが履歴に保存されました",
-  "history_id": "uuid-string"
-}
-```
+## 実装順序
 
-#### **Phase 2: 履歴保存機能**
-- 既存の `recipe_history_crud.py` を活用
-- 採用されたレシピの保存処理
-- ユーザー別の履歴管理
+1. **Phase 1A** → 基本機能の実装
+2. **Phase 1B** → プランナー・タスク設計の拡張
+3. **Phase 1C** → 統合テストと品質保証
 
-#### **Phase 3: 重複回避機能**
-- 2週間以内のレシピ除外ロジック
-- 既存の `excluded_recipes` パラメータとの連携
-- 献立提案時の自動除外
+## 詳細プラン
 
-### **技術的詳細**
-- 既存の認証システムを活用
-- 既存のデータベース構造を拡張
-- 既存のAPI設計パターンに準拠
+各フェーズの詳細な実装計画は以下のファイルを参照してください：
 
+- [plan_Phase_1A.md](./plan_Phase_1A.md) - 基本機能実装
+- [plan_Phase_1B.md](./plan_Phase_1B.md) - プランナー・タスク設計拡張
+- [plan_Phase_1C.md](./plan_Phase_1C.md) - 統合テスト
+
+## 期待される効果
+
+- ユーザーが主菜を選ぶ選択肢が増える（2件→5件）
+- LLMの独創性とRAGの伝統的レシピのバランスが取れる
+- **主要食材を考慮した提案でユーザーの意図に沿った提案**
+- **曖昧性検出によりユーザー体験が向上**
+- Phase 2以降の段階的選択システムの基盤となる
+
+## 制約事項
+
+- Phase 1Aが完成してからPhase 1Bを開始
+- Phase 1Bが完成してからPhase 1Cを開始
+- フロントエンドは既存の表示機能で対応（Phase 2で専用UI追加予定）
+- ユーザー選択機能は含まない（Phase 2で追加予定）
+- 副菜・汁物は現状維持（Phase 3以降で対応予定）
+
+### **今後の拡張**
+🔜 **Phase 2**: ユーザー選択機能（plan_Phase_2.md 作成が必要）  
+🔜 **Phase 3**: 副菜・汁物の段階的選択（plan_Phase_3.md 作成が必要）  
+🔜 **Phase 4**: タスクチェーンのロールバック（plan_Phase_4.md 作成が必要）  
+🔜 **Phase 5**: 履歴管理（plan_Phase_5.md 作成が必要）
