@@ -187,6 +187,43 @@ async def history_delete_by_id(user_id: str, history_id: str) -> Dict[str, Any]:
         logger.error(f"❌ [RECIPE_HISTORY] Error in history_delete_by_id: {e}")
         return {"success": False, "error": str(e)}
 
+
+@mcp.tool()
+async def history_get_recent_titles(
+    user_id: str,
+    category: str,  # "main", "sub", "soup"
+    days: int = 14,
+    token: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    指定期間内のレシピタイトルを取得（重複回避用）
+    
+    Args:
+        user_id: ユーザーID
+        category: カテゴリ（"main", "sub", "soup"）
+        days: 重複回避期間（日数）
+        token: 認証トークン
+    
+    Returns:
+        Dict[str, Any]: レシピタイトルのリスト
+    """
+    logger.info(f"🔧 [RECIPE_HISTORY] Starting history_get_recent_titles for user: {user_id}, category: {category}, days: {days}")
+    
+    try:
+        client = get_authenticated_client(user_id, token)
+        logger.info(f"🔐 [RECIPE_HISTORY] Authenticated client created for user: {user_id}")
+        
+        result = await crud.get_recent_recipe_titles(client, user_id, category, days)
+        logger.info(f"✅ [RECIPE_HISTORY] history_get_recent_titles completed successfully")
+        logger.debug(f"📊 [RECIPE_HISTORY] Recent titles result: {result}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"❌ [RECIPE_HISTORY] Error in history_get_recent_titles: {e}")
+        return {"success": False, "error": str(e), "data": []}
+
+
 if __name__ == "__main__":
     logger.info("🚀 Starting Recipe History MCP Server")
     mcp.run()

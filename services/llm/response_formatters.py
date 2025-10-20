@@ -450,3 +450,56 @@ class ResponseFormatters:
                 return self._format_ambiguity_error(data, "削除")
             else:
                 return self._format_general_error(error_msg, "削除")
+    
+    def format_main_dish_proposals(self, data: Dict[str, Any]) -> List[str]:
+        """主菜5件提案のフォーマット（主要食材考慮）"""
+        response_parts = []
+        
+        try:
+            if data.get("success"):
+                candidates = data.get("data", {}).get("candidates", [])
+                main_ingredient = data.get("data", {}).get("main_ingredient")
+                llm_count = data.get("data", {}).get("llm_count", 0)
+                rag_count = data.get("data", {}).get("rag_count", 0)
+                
+                # 主要食材の表示
+                if main_ingredient:
+                    response_parts.append(f"🍽️ **主菜の提案（5件）- {main_ingredient}使用**")
+                else:
+                    response_parts.append("🍽️ **主菜の提案（5件）**")
+                response_parts.append("")
+                
+                # LLM提案（最初の2件）
+                if llm_count > 0:
+                    response_parts.append("💡 **斬新な提案（LLM推論）**")
+                    for i, candidate in enumerate(candidates[:llm_count], 1):
+                        title = candidate.get("title", "")
+                        ingredients = ", ".join(candidate.get("ingredients", []))
+                        response_parts.append(f"{i}. {title}")
+                        response_parts.append(f"   使用食材: {ingredients}")
+                        response_parts.append("")
+                
+                # RAG提案（残りの3件）
+                if rag_count > 0:
+                    response_parts.append("📚 **伝統的な提案（RAG検索）**")
+                    start_idx = llm_count
+                    for i, candidate in enumerate(candidates[start_idx:], start_idx + 1):
+                        title = candidate.get("title", "")
+                        ingredients = ", ".join(candidate.get("ingredients", []))
+                        response_parts.append(f"{i}. {title}")
+                        response_parts.append(f"   使用食材: {ingredients}")
+                        response_parts.append("")
+            else:
+                # エラー時の表示
+                error_msg = data.get("error", "不明なエラー")
+                response_parts.append("❌ **主菜提案の取得に失敗しました**")
+                response_parts.append("")
+                response_parts.append(f"エラー: {error_msg}")
+                response_parts.append("")
+                response_parts.append("もう一度お試しください。")
+                
+        except Exception as e:
+            self.logger.error(f"❌ [ResponseFormatters] Error in format_main_dish_proposals: {e}")
+            response_parts.append("主菜提案の処理中にエラーが発生しました。")
+        
+        return response_parts

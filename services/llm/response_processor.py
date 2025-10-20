@@ -220,6 +220,9 @@ class ResponseProcessor:
                 # JSON形式のレシピデータも生成
                 menu_data = self.menu_generator.generate_menu_data_json(data)
                 
+            elif service_method == "recipe_service.generate_main_dish_proposals":
+                response_parts.extend(self.formatters.format_main_dish_proposals(data))
+                
             else:
                 # 未知のサービス・メソッドの場合は汎用処理
                 response_parts.extend(self.formatters.format_generic_result(service_method, data))

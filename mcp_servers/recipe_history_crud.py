@@ -137,6 +137,48 @@ class RecipeHistoryCRUD:
         except Exception as e:
             self.logger.error(f"❌ [CRUD] Failed to delete recipe history by ID: {e}")
             return {"success": False, "error": str(e)}
+    
+    async def get_recent_recipe_titles(
+        self,
+        client: Client,
+        user_id: str,
+        category: str,  # "main", "sub", "soup"
+        days: int = 14  # デフォルト14日間
+    ) -> Dict[str, Any]:
+        """指定期間内のレシピタイトルを取得（重複回避用）
+        
+        Args:
+            client: Supabaseクライアント
+            user_id: ユーザーID
+            category: カテゴリ（"main", "sub", "soup"）
+            days: 重複回避期間（日数）
+        
+        Returns:
+            Dict[str, Any]: {"success": bool, "data": List[str]} レシピタイトルのリスト
+        """
+        try:
+            self.logger.info(f"📋 [CRUD] Getting recent {category} recipes for user: {user_id} (last {days} days)")
+            
+            from datetime import datetime, timedelta
+            
+            cutoff_date = datetime.now() - timedelta(days=days)
+            
+            # 指定期間内のレシピを取得
+            result = client.table("recipe_historys")\
+                .select("title")\
+                .eq("user_id", user_id)\
+                .gte("cooked_at", cutoff_date.isoformat())\
+                .execute()
+            
+            # タイトルのリストを作成
+            titles = [item["title"] for item in result.data]
+            
+            self.logger.info(f"✅ [CRUD] Retrieved {len(titles)} recent {category} recipe titles")
+            return {"success": True, "data": titles}
+            
+        except Exception as e:
+            self.logger.error(f"❌ [CRUD] Failed to get recent recipe titles: {e}")
+            return {"success": False, "error": str(e), "data": []}
 
 
 if __name__ == "__main__":

@@ -220,3 +220,40 @@ class RecipeRAGClient:
         return await menu_formatter.convert_categorized_results_to_menu_format(
             categorized_results, inventory_items, menu_type
         )
+    
+    async def search_main_dish_candidates(
+        self,
+        ingredients: List[str],
+        menu_type: str,
+        main_ingredient: str = None,  # 主要食材
+        excluded_recipes: List[str] = None,
+        limit: int = 3
+    ) -> List[Dict[str, Any]]:
+        """主菜候補を検索（主要食材考慮）"""
+        try:
+            logger.info(f"🔍 [RAG] Searching {limit} main dish candidates")
+            logger.info(f"🔍 [RAG] Main ingredient: {main_ingredient}, Excluded: {len(excluded_recipes or [])} recipes")
+            
+            search_engine = self._get_search_engines()["main"]
+            
+            # 主要食材がある場合は検索クエリに追加
+            search_query = ingredients.copy()
+            if main_ingredient:
+                search_query.insert(0, main_ingredient)  # 主要食材を優先
+            
+            # RAG検索（除外レシピを渡す）
+            results = await search_engine.search_similar_recipes(
+                search_query, menu_type, excluded_recipes, limit
+            )
+            
+            # 各結果に使用食材リストを含める
+            for result in results:
+                if "ingredients" not in result:
+                    result["ingredients"] = result.get("ingredients_list", [])
+            
+            logger.info(f"✅ [RAG] Found {len(results)} main dish candidates")
+            return results
+            
+        except Exception as e:
+            logger.error(f"❌ [RAG] Failed to search main dish candidates: {e}")
+            return []

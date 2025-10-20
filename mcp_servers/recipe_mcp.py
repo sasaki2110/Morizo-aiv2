@@ -328,6 +328,60 @@ async def search_recipe_from_web(
         return {"success": False, "error": str(e)}
 
 
+@mcp.tool()
+async def generate_main_dish_proposals(
+    inventory_items: List[str],
+    user_id: str,
+    menu_type: str = "",
+    main_ingredient: str = None,  # 主要食材
+    excluded_recipes: List[str] = None,
+    token: str = None
+) -> Dict[str, Any]:
+    """主菜5件提案（LLM 2件 + RAG 3件、主要食材考慮、重複回避）"""
+    logger.info(f"🔧 [RECIPE] Starting generate_main_dish_proposals")
+    logger.info(f"  User: {user_id}, Main ingredient: {main_ingredient}")
+    logger.info(f"  Excluded recipes: {len(excluded_recipes or [])} recipes")
+    
+    try:
+        # 認証済みクライアントを取得
+        client = get_authenticated_client(user_id, token)
+        logger.info(f"🔐 [RECIPE] Authenticated client created for user: {user_id}")
+        
+        # LLMで2件生成（除外レシピを渡す）
+        llm_result = await llm_client.generate_main_dish_candidates(
+            inventory_items, menu_type, main_ingredient, excluded_recipes, count=2
+        )
+        
+        # RAGで3件検索（除外レシピを渡す）
+        rag_result = await rag_client.search_main_dish_candidates(
+            inventory_items, menu_type, main_ingredient, excluded_recipes, limit=3
+        )
+        
+        # 統合
+        candidates = []
+        if llm_result.get("success"):
+            candidates.extend(llm_result["data"]["candidates"])
+        if rag_result:
+            candidates.extend([{"title": r["title"], "ingredients": r.get("ingredients", [])} for r in rag_result])
+        
+        logger.info(f"✅ [RECIPE] generate_main_dish_proposals completed: {len(candidates)} candidates")
+        
+        return {
+            "success": True,
+            "data": {
+                "candidates": candidates,
+                "total": len(candidates),
+                "main_ingredient": main_ingredient,
+                "excluded_count": len(excluded_recipes or []),
+                "llm_count": len(llm_result.get("data", {}).get("candidates", [])),
+                "rag_count": len(rag_result)
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ [RECIPE] Error in generate_main_dish_proposals: {e}")
+        return {"success": False, "error": str(e)}
+
 
 if __name__ == "__main__":
     logger.info("🚀 Starting Recipe MCP Server")

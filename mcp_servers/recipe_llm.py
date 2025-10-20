@@ -177,6 +177,86 @@ class RecipeLLM:
             "soup": soup,
             "ingredients_used": ingredients
         }
+    
+    async def generate_main_dish_candidates(
+        self, 
+        inventory_items: List[str], 
+        menu_type: str,
+        main_ingredient: str = None,  # 主要食材
+        excluded_recipes: List[str] = None,
+        count: int = 2
+    ) -> Dict[str, Any]:
+        """主菜候補を複数件生成（主要食材考慮）"""
+        
+        main_ingredient_text = ""
+        if main_ingredient:
+            main_ingredient_text = f"\n重要: {main_ingredient}を必ず使用してください。"
+        
+        # 除外レシピの追加
+        excluded_text = ""
+        if excluded_recipes:
+            excluded_text = f"\n除外レシピ（提案しないでください）: {', '.join(excluded_recipes)}"
+        
+        prompt = f"""
+在庫食材: {', '.join(inventory_items)}
+献立タイプ: {menu_type}{main_ingredient_text}{excluded_text}
+
+以下の条件で主菜のタイトルを{count}件生成してください:
+1. 在庫食材のみを使用
+2. 独創的で新しいレシピタイトル
+3. 除外レシピは絶対に使用しない
+4. 各提案に使用食材リストを含める
+
+以下のJSON形式で回答してください:
+{{
+    "candidates": [
+        {{"title": "主菜タイトル1", "ingredients": ["食材1", "食材2"]}},
+        {{"title": "主菜タイトル2", "ingredients": ["食材1", "食材3"]}}
+    ]
+}}
+"""
+        
+        try:
+            self.logger.info(f"🤖 [LLM] Generating {count} main dish candidates with main ingredient: {main_ingredient}")
+            
+            # プロンプトロギング
+            log_prompt_with_tokens(prompt, max_tokens=1000, logger_name="mcp.recipe_llm")
+            
+            # LLM呼び出し
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=self.temperature,
+                max_tokens=1000
+            )
+            
+            # レスポンスを解析
+            candidates = self._parse_main_dish_response(response.choices[0].message.content)
+            
+            self.logger.info(f"✅ [LLM] Generated {len(candidates)} main dish candidates")
+            return {"success": True, "data": {"candidates": candidates}}
+            
+        except Exception as e:
+            self.logger.error(f"❌ [LLM] Failed to generate main dish candidates: {e}")
+            return {"success": False, "error": str(e)}
+
+    def _parse_main_dish_response(self, response_content: str) -> List[Dict[str, Any]]:
+        """LLMレスポンスを解析して主菜候補を抽出"""
+        try:
+            import json
+            import re
+            
+            # JSON部分を抽出
+            json_match = re.search(r'\{.*\}', response_content, re.DOTALL)
+            if json_match:
+                json_str = json_match.group()
+                data = json.loads(json_str)
+                return data.get("candidates", [])
+            
+            return []
+        except Exception as e:
+            self.logger.error(f"❌ [LLM] Failed to parse main dish response: {e}")
+            return []
 
 
 if __name__ == "__main__":
