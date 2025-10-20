@@ -41,10 +41,14 @@ class PromptManager:
   - `delete_inventory(item_identifier: str, strategy: str)`: 在庫を削除します。strategyには 'by_id', 'by_name', 'by_name_all', 'by_name_oldest', 'by_name_latest' が指定可能です。
 
 - **recipe_service**: レシピ・献立サービス
+  - `generate_main_dish_proposals(inventory_items: list, user_id: str, main_ingredient: str, excluded_recipes: list, ...)`: 主菜5件を提案します（LLM 2件 + RAG 3件）。main_ingredientで主要食材を指定可能。excluded_recipesで重複回避対象のレシピタイトルを指定。
   - `generate_menu_plan(inventory_items: list, user_id: str, ...)`: 在庫リストに基づき、LLMによる独創的な献立提案を行います。過去の履歴も考慮します。
   - `search_menu_from_rag(query: str, user_id: str, ...)`: RAGを使用して過去の献立履歴から類似の献立を検索します。
   - `search_recipes_from_web(recipe_name: str, ...)`: 指定された料理名のレシピをWeb検索し、URLを含む詳細情報を返します。
   - `get_recipe_history(user_id: str, ...)`: 過去の料理履歴を取得します。
+
+- **history_service**: レシピ履歴サービス
+  - `history_get_recent_titles(user_id: str, category: str, days: int, ...)`: 指定期間内のレシピタイトルを取得（重複回避用）。categoryは"main"/"sub"/"soup"、daysは日数。
 
 - **session_service**: セッション管理サービス（通常は直接呼び出し不要）
 
@@ -69,6 +73,17 @@ class PromptManager:
    c. **task3**: `recipe_service.search_menu_from_rag()` を呼び出す。その際、ステップ1で取得した在庫情報を `inventory_items` パラメータに設定する。
    d. **task4**: `recipe_service.search_recipes_from_web()` を呼び出す。その際、ステップ2とステップ3の結果を適切に処理する。
 
+3. **主菜提案の場合**: ユーザーの要求が「主菜」「メイン」「主菜を提案して」等の主菜提案に関する場合、以下の3段階のタスク構成を使用してください：
+   
+   **例**:
+   - 「主菜を5件提案して」→ 3段階タスク構成
+   - 「レンコンを使った主菜を教えて」→ 3段階タスク構成
+   - 「メインを提案して」→ 3段階タスク構成
+
+   a. **task1**: `inventory_service.get_inventory()` を呼び出し、現在の在庫をすべて取得する。
+   b. **task2**: `history_service.history_get_recent_titles(user_id, "main", 14)` を呼び出し、14日間の主菜履歴を取得する。
+   c. **task3**: `recipe_service.generate_main_dish_proposals()` を呼び出す。その際、ステップ1で取得した在庫情報を `inventory_items` パラメータに、ステップ2で取得した履歴タイトルを `excluded_recipes` パラメータに設定する。
+
 **並列実行の指示**: task2とtask3は並列で実行可能です。dependenciesにtask1のみを指定してください。
 
 **献立データの処理ルール**:
@@ -77,7 +92,11 @@ class PromptManager:
   - `"recipe_titles": ["task2.result.main_dish", "task2.result.side_dish", "task2.result.soup", "task3.result.main_dish", "task3.result.side_dish", "task3.result.soup"]`
   - または、主菜のみ: `"recipe_titles": ["task2.result.main_dish", "task3.result.main_dish"]`
 
-**パラメータ注入のルール**:
+**パラメータ注入のルール（重複回避対応）**:
+- task1の結果をtask3で使用する場合 → `"inventory_items": "task1.result"`
+- task2の結果をtask3で使用する場合 → `"excluded_recipes": "task2.result.data"` （dataフィールドから取得）
+- 主要食材がある場合 → `"main_ingredient": "抽出された食材名"`
+- 主要食材がない場合 → `"main_ingredient": null`
 - 先行タスクの結果を後続タスクのパラメータに注入する場合は、必ず `"先行タスク名.result"` 形式を使用してください。
 - 辞書フィールド参照の場合は `"先行タスク名.result.フィールド名"` 形式を使用してください。
 - 例: task1の結果をtask2で使用する場合 → `"inventory_items": "task1.result"`

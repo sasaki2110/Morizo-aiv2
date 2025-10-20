@@ -243,13 +243,16 @@ class RecipeRAGClient:
             
             # RAG検索（除外レシピを渡す）
             results = await search_engine.search_similar_recipes(
-                search_query, menu_type, excluded_recipes, limit
+                search_query, menu_type, excluded_recipes, limit, main_ingredient
             )
             
             # 各結果に使用食材リストを含める
             for result in results:
                 if "ingredients" not in result:
-                    result["ingredients"] = result.get("ingredients_list", [])
+                    # contentフィールドから食材を抽出
+                    content = result.get("content", "")
+                    ingredients = self._extract_ingredients_from_content(content)
+                    result["ingredients"] = ingredients
             
             logger.info(f"✅ [RAG] Found {len(results)} main dish candidates")
             return results
@@ -257,3 +260,16 @@ class RecipeRAGClient:
         except Exception as e:
             logger.error(f"❌ [RAG] Failed to search main dish candidates: {e}")
             return []
+    
+    def _extract_ingredients_from_content(self, content: str) -> List[str]:
+        """contentフィールドから食材を抽出"""
+        if not content:
+            return []
+        
+        # スペースで分割して食材リストを作成
+        ingredients = content.split()
+        
+        # 空文字列を除去
+        ingredients = [ingredient.strip() for ingredient in ingredients if ingredient.strip()]
+        
+        return ingredients

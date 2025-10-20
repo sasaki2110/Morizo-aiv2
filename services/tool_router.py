@@ -46,6 +46,12 @@ class ToolRouter:
             ("recipe_service", "search_recipes_from_web"): "search_recipe_from_web",
             ("recipe_service", "get_recipe_history"): "get_recipe_history_for_user",
             
+            # Phase 1Aで追加された新ツールのマッピング
+            ("recipe_service", "generate_main_dish_proposals"): "generate_main_dish_proposals",
+            
+            # RecipeHistoryService のマッピング（重複回避用）
+            ("history_service", "history_get_recent_titles"): "history_get_recent_titles",
+            
             # 他のサービスのマッピング（必要に応じて追加）
         }
         

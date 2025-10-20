@@ -9,8 +9,26 @@ from typing import List, Dict, Any
 from langchain_community.vectorstores import Chroma
 from langchain_openai import OpenAIEmbeddings
 from config.loggers import GenericLogger
+import unicodedata
 
 logger = GenericLogger("mcp", "recipe_rag", initialize_logging=False)
+
+
+def normalize_ingredient(ingredient):
+    """食材名を正規化（カタカナに統一）"""
+    if not ingredient:
+        return ""
+    
+    # ひらがなをカタカナに変換
+    result = ""
+    for char in ingredient:
+        if 'ぁ' <= char <= 'ん':
+            # ひらがなをカタカナに変換
+            katakana_char = chr(ord(char) - ord('ぁ') + ord('ァ'))
+            result += katakana_char
+        else:
+            result += char
+    return result
 
 
 class RecipeSearchEngine:
@@ -25,7 +43,8 @@ class RecipeSearchEngine:
         ingredients: List[str],
         menu_type: str,
         excluded_recipes: List[str] = None,
-        limit: int = 5
+        limit: int = 5,
+        main_ingredient: str = None
     ) -> List[Dict[str, Any]]:
         """
         在庫食材に基づく類似レシピ検索（部分マッチング機能付き）
@@ -35,6 +54,7 @@ class RecipeSearchEngine:
             menu_type: メニュータイプ
             excluded_recipes: 除外するレシピタイトル
             limit: 検索結果の最大件数
+            main_ingredient: 主要食材
         
         Returns:
             検索結果のリスト
@@ -46,7 +66,8 @@ class RecipeSearchEngine:
                 menu_type=menu_type,
                 excluded_recipes=excluded_recipes,
                 limit=limit,
-                min_match_score=0.05  # 低い閾値で幅広く検索
+                min_match_score=0.05,  # 低い閾値で幅広く検索
+                main_ingredient=main_ingredient
             )
             
             # 既存のAPIとの互換性のため、不要なフィールドを削除
@@ -74,7 +95,8 @@ class RecipeSearchEngine:
         menu_type: str,
         excluded_recipes: List[str] = None,
         limit: int = 5,
-        min_match_score: float = 0.1
+        min_match_score: float = 0.1,
+        main_ingredient: str = None
     ) -> List[Dict[str, Any]]:
         """
         在庫食材の部分マッチングでレシピを検索
@@ -85,6 +107,7 @@ class RecipeSearchEngine:
             excluded_recipes: 除外するレシピタイトル
             limit: 検索結果の最大件数
             min_match_score: 最小マッチングスコア
+            main_ingredient: 主要食材
         
         Returns:
             検索結果のリスト（マッチングスコア付き）
@@ -93,10 +116,34 @@ class RecipeSearchEngine:
             # 在庫食材の重複を除去して正規化
             normalized_ingredients = list(set(ingredients))
             
-            # より多くの結果を取得して部分マッチングでフィルタリング
-            query = f"{' '.join(normalized_ingredients)} {menu_type}"
-            
-            results = self.vectorstore.similarity_search(query, k=limit * 4)  # 多めに取得
+            # 主要食材がある場合は2段階検索を実行
+            if main_ingredient:
+                # 主要食材を正規化
+                normalized_main = normalize_ingredient(main_ingredient)
+                
+                # 第1段階: 主要食材のみでの検索（多めに取得）
+                main_query = f"{normalized_main} {normalized_main} {normalized_main} {menu_type}"
+                main_results = self.vectorstore.similarity_search(main_query, k=limit * 15)
+                
+                # 第2段階: 在庫食材込みでの検索
+                inventory_query = f"{normalized_main} {normalized_main} {' '.join(normalized_ingredients)} {menu_type}"
+                inventory_results = self.vectorstore.similarity_search(inventory_query, k=limit * 10)
+                
+                # 結果をマージ（重複除去）
+                all_results = main_results + inventory_results
+                seen_titles = set()
+                results = []
+                for result in all_results:
+                    title = result.metadata.get('title', '')
+                    if title not in seen_titles:
+                        seen_titles.add(title)
+                        results.append(result)
+                        if len(results) >= limit * 20:  # 十分な数を確保
+                            break
+            else:
+                # 主要食材指定なしの場合は従来通り
+                query = f"{' '.join(normalized_ingredients)} {menu_type}"
+                results = self.vectorstore.similarity_search(query, k=limit * 4)
             
             # 部分マッチングでフィルタリングとスコアリング
             scored_results = []
@@ -124,7 +171,7 @@ class RecipeSearchEngine:
                     
                     # 部分マッチングスコアを計算
                     match_score, matched_ingredients = self._calculate_match_score(
-                        recipe_ingredients, normalized_ingredients
+                        recipe_ingredients, normalized_ingredients, main_ingredient
                     )
                     
                     # 最小スコア以上のレシピのみを追加
@@ -146,10 +193,35 @@ class RecipeSearchEngine:
                     logger.warning(f"結果処理エラー: {e}")
                     continue
             
-            # マッチングスコア順にソート
-            scored_results.sort(key=lambda x: x['match_score'], reverse=True)
+            # マッチングスコア順にソート（タイトルで二次ソートして安定化）
+            scored_results.sort(key=lambda x: (-x['match_score'], x['title']))
             
-            final_results = scored_results[:limit]
+            # 主要食材がある場合は、主要食材を含むレシピを優先
+            if main_ingredient:
+                # 主要食材を含むレシピと含まないレシピに分類
+                recipes_with_main = []
+                recipes_without_main = []
+                
+                for result in scored_results:
+                    # 主要食材のマッチング判定
+                    recipe_ingredients = result.get('recipe_ingredients', '')
+                    matched_ingredients = result.get('matched_ingredients', [])
+                    
+                    # 正規化による主要食材判定
+                    has_main_ingredient = self._has_main_ingredient_normalized(
+                        main_ingredient, recipe_ingredients, matched_ingredients
+                    )
+                    
+                    if has_main_ingredient:
+                        recipes_with_main.append(result)
+                    else:
+                        recipes_without_main.append(result)
+                
+                # 主要食材ありのレシピのみを返す（主要食材なしは除外）
+                final_results = recipes_with_main[:limit]
+            else:
+                # 主要食材指定なしの場合は従来通り
+                final_results = scored_results[:limit]
             
             return final_results
             
@@ -157,10 +229,30 @@ class RecipeSearchEngine:
             logger.error(f"部分マッチング検索エラー: {e}")
             raise
     
+    def _has_main_ingredient_normalized(self, main_ingredient, recipe_ingredients, matched_ingredients):
+        """正規化による主要食材判定"""
+        normalized_main = normalize_ingredient(main_ingredient)
+        
+        # レシピ食材を正規化してチェック
+        recipe_words = recipe_ingredients.split()
+        for word in recipe_words:
+            normalized_word = normalize_ingredient(word)
+            # 完全一致または部分一致
+            if normalized_main == normalized_word or normalized_main in normalized_word:
+                return True
+        
+        # マッチした食材を正規化してチェック
+        for matched in matched_ingredients:
+            if normalized_main in normalize_ingredient(matched):
+                return True
+        
+        return False
+    
     def _calculate_match_score(
         self, 
         recipe_ingredients: str, 
-        normalized_ingredients: List[str]
+        normalized_ingredients: List[str],
+        main_ingredient: str = None
     ) -> tuple[float, List[str]]:
         """
         マッチングスコアを計算
@@ -168,6 +260,7 @@ class RecipeSearchEngine:
         Args:
             recipe_ingredients: レシピの食材文字列
             normalized_ingredients: 正規化された在庫食材リスト
+            main_ingredient: 主要食材
         
         Returns:
             (マッチングスコア, マッチした食材リスト)
@@ -180,20 +273,43 @@ class RecipeSearchEngine:
         total_inventory = len(normalized_ingredients)
         matched_items = []
         
+        # 主要食材の重み付け
+        main_ingredient_weight = 5.0  # 主要食材の重み
+        
         for inventory_item in normalized_ingredients:
-            # 完全マッチ
-            if inventory_item in recipe_words:
-                matched_count += 1
-                matched_items.append(inventory_item)
-            else:
-                # 部分マッチ（在庫食材がレシピ食材に含まれる）
+            normalized_inventory = normalize_ingredient(inventory_item)
+            is_main_ingredient = main_ingredient and normalize_ingredient(inventory_item) == normalize_ingredient(main_ingredient)
+            
+            # 完全マッチ（正規化後）
+            matched = False
+            for word in recipe_words:
+                normalized_word = normalize_ingredient(word)
+                if normalized_inventory == normalized_word:
+                    weight = main_ingredient_weight if is_main_ingredient else 1.0
+                    matched_count += weight
+                    matched_items.append(inventory_item)
+                    matched = True
+                    break
+            
+            # 部分マッチ（正規化後）
+            if not matched:
                 for word in recipe_words:
-                    if inventory_item in word or word in inventory_item:
-                        matched_count += 0.5
+                    normalized_word = normalize_ingredient(word)
+                    if normalized_inventory in normalized_word or normalized_word in normalized_inventory:
+                        weight = main_ingredient_weight * 0.5 if is_main_ingredient else 0.5
+                        matched_count += weight
                         matched_items.append(inventory_item)
                         break
         
         # スコア計算: マッチした食材数 / 在庫食材数
-        match_score = matched_count / total_inventory if total_inventory > 0 else 0.0
+        # 主要食材がある場合は、主要食材の重みを考慮した正規化
+        if main_ingredient and main_ingredient in normalized_ingredients:
+            # 主要食材がある場合: (主要食材の重み + その他の食材数) / (主要食材の重み + その他の食材数)
+            other_ingredients_count = len(normalized_ingredients) - 1
+            max_possible_score = main_ingredient_weight + other_ingredients_count
+            match_score = matched_count / max_possible_score if max_possible_score > 0 else 0.0
+        else:
+            # 主要食材がない場合: 従来の計算
+            match_score = matched_count / total_inventory if total_inventory > 0 else 0.0
         
         return match_score, matched_items

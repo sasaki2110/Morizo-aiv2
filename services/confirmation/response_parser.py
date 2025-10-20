@@ -7,7 +7,7 @@ ConfirmationServiceから分離された責任
 """
 
 import re
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 from config.loggers import GenericLogger
 
 
@@ -135,3 +135,77 @@ class UserResponseParser:
                 break
         
         return additional_params
+    
+    async def process_main_ingredient_confirmation(
+        self,
+        ambiguity_info: Dict[str, Any],
+        user_response: str,
+        original_tasks: List[Any]
+    ) -> Dict[str, Any]:
+        """主要食材選択の確認プロセス処理"""
+        
+        # パターン1: 指定せずに進める
+        proceed_keywords = ["いいえ", "そのまま", "提案して", "在庫から", "このまま", "進めて", "指定しない", "2"]
+        if any(keyword in user_response for keyword in proceed_keywords):
+            self.logger.info(f"✅ [ResponseParser] User chose to proceed without specifying ingredient")
+            return {
+                "is_confirmed": True,
+                "updated_tasks": original_tasks,  # main_ingredient: null のまま
+                "message": "在庫から作れる主菜を提案します。"
+            }
+        
+        # パターン2: 食材を指定する
+        specify_keywords = ["はい", "指定", "1"]
+        if any(keyword in user_response for keyword in specify_keywords):
+            # 食材名を抽出（次のユーザー入力を待つ）
+            self.logger.info(f"🔍 [ResponseParser] User chose to specify ingredient")
+            return {
+                "is_confirmed": False,
+                "updated_tasks": [],
+                "message": "どの食材を使いたいですか？食材名を教えてください。",
+                "needs_follow_up": True
+            }
+        
+        # パターン3: 直接食材名を入力
+        # 簡易的な食材認識（実際には既存の食材認識ロジックを活用）
+        # ここでは、キーワードに該当しない場合は食材名として扱う
+        if user_response and len(user_response) < 20:  # 短い入力は食材名の可能性
+            specified_ingredient = user_response.strip()
+            updated_tasks = self._update_task_with_main_ingredient(
+                original_tasks,
+                ambiguity_info.get("task_id"),
+                specified_ingredient
+            )
+            self.logger.info(f"✅ [ResponseParser] Ingredient specified: {specified_ingredient}")
+            return {
+                "is_confirmed": True,
+                "updated_tasks": updated_tasks,
+                "message": f"主要食材を「{specified_ingredient}」に設定しました。"
+            }
+        
+        # パターン4: 認識できない応答
+        self.logger.warning(f"⚠️ [ResponseParser] Could not understand response: {user_response}")
+        return {
+            "is_confirmed": False,
+            "updated_tasks": [],
+            "message": "すみません、理解できませんでした。食材名を指定するか、「そのまま提案して」とお答えください。"
+        }
+
+    def _update_task_with_main_ingredient(
+        self, 
+        tasks: List[Any], 
+        task_id: str, 
+        main_ingredient: str
+    ) -> List[Any]:
+        """主要食材を設定してタスクを更新"""
+        updated_tasks = []
+        
+        for task in tasks:
+            if task.id == task_id:
+                # 主要食材を設定
+                task.parameters["main_ingredient"] = main_ingredient
+                updated_tasks.append(task)
+            else:
+                updated_tasks.append(task)
+        
+        return updated_tasks

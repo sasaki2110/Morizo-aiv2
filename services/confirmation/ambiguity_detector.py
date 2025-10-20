@@ -54,6 +54,12 @@ class AmbiguityDetector:
                         ambiguity_info = await self.check_inventory_ambiguity(task, user_id, token)
                         if ambiguity_info and ambiguity_info.is_ambiguous:
                             ambiguous_tasks.append(ambiguity_info)
+                    
+                    if tool_name.startswith("recipe_service_generate_main_dish_proposals"):
+                        # 主菜提案の曖昧性チェック
+                        ambiguity_info = await self.check_main_dish_ambiguity(task, user_id, token)
+                        if ambiguity_info and ambiguity_info.is_ambiguous:
+                            ambiguous_tasks.append(ambiguity_info)
             
             requires_confirmation = len(ambiguous_tasks) > 0
             
@@ -139,6 +145,36 @@ class AmbiguityDetector:
         except Exception as e:
             self.logger.error(f"❌ [AmbiguityDetector] Error in check_inventory_ambiguity: {e}")
             return None
+    
+    async def check_main_dish_ambiguity(
+        self, 
+        task: Any, 
+        user_id: str,
+        token: str = ""
+    ) -> Optional[AmbiguityInfo]:
+        """主菜提案の曖昧性チェック（主要食材未指定時）"""
+        
+        if task.method == "generate_main_dish_proposals":
+            # 主要食材が指定されていない場合
+            main_ingredient = task.parameters.get("main_ingredient")
+            if not main_ingredient:
+                return AmbiguityInfo(
+                    task_id=task.id,
+                    tool_name=f"{task.service}_{task.method}",
+                    ambiguity_type="main_ingredient_optional_selection",
+                    details={
+                        "message": "なにか主な食材を指定しますか？それとも今の在庫から作れる主菜を提案しましょうか？",
+                        "type": "main_ingredient_optional_selection",
+                        "options": [
+                            {"value": "specify", "label": "食材を指定する"},
+                            {"value": "proceed", "label": "指定せずに提案してもらう"}
+                        ],
+                        "task_type": "main_dish_proposal"
+                    },
+                    original_parameters=task.parameters
+                )
+        
+        return None
     
     def _generate_confirmation_message(self, item_name: str, items: List[Dict[str, Any]]) -> str:
         """確認メッセージを生成"""

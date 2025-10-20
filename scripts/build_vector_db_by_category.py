@@ -181,7 +181,8 @@ def preprocess_recipes(recipes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                     'recipe_category': recipe_info['category'],
                     'category_detail': recipe_info['category_detail'],  # 新規追加
                     'main_ingredients': ', '.join(recipe_info['main_ingredients'][:3]),  # リストを文字列に変換
-                    'original_index': i
+                    'original_index': i,  # 元のJSONLファイルでのインデックス
+                    'category_index': len(processed_recipes)  # カテゴリ内でのインデックス
                 }
             }
             
@@ -191,6 +192,8 @@ def preprocess_recipes(recipes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 print(f"タイトル: {recipe_info['title']}")
                 print(f"レシピ分類: {recipe_info['category']}")
                 print(f"カテゴリ: {recipe_info['category_detail']}")
+                print(f"元のインデックス: {i}")
+                print(f"カテゴリ内インデックス: {len(processed_recipes)}")
                 print(f"元の食材テキスト: {recipe_info['ingredients_text'][:200]}...")
                 print(f"正規化後食材: {ingredients}")
                 print(f"結合テキスト: {combined_text}")
