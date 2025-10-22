@@ -162,8 +162,19 @@ class RecipeSearchEngine:
                             title = parts[0].strip()
                     
                     # 除外レシピチェック
-                    if excluded_recipes and any(excluded in title for excluded in excluded_recipes):
-                        continue
+                    if excluded_recipes:
+                        # プレフィックスを除去して正規化したタイトルで比較
+                        normalized_title = title.strip()
+                        is_excluded = False
+                        for excluded in excluded_recipes:
+                            # プレフィックス ("主菜: ", "副菜: ", "汁物: ") を除去
+                            normalized_excluded = excluded.replace("主菜: ", "").replace("副菜: ", "").replace("汁物: ", "").strip()
+                            # タイトルが除外リストに含まれているか、または部分一致するか
+                            if normalized_title == normalized_excluded or normalized_title in normalized_excluded or normalized_excluded in normalized_title:
+                                is_excluded = True
+                                break
+                        if is_excluded:
+                            continue
                     
                     # レシピの食材部分を抽出
                     parts = content.split(' | ')
