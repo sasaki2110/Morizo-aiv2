@@ -147,9 +147,8 @@ class ActionPlanner:
             method = desc.get("method")
             parameters = desc.get("parameters", {})
             
-            # Add user_id to parameters if not present
-            if "user_id" not in parameters:
-                parameters["user_id"] = user_id
+            # 常に実際のuser_idで上書き（LLMが生成した"user123"等を置き換え）
+            parameters["user_id"] = user_id
             
             task = Task(
                 id=task_id,

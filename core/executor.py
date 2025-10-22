@@ -216,22 +216,34 @@ class TaskExecutor:
         
         
         for key, value in parameters.items():
+            self.logger.info(f"🔍 [EXECUTOR] Processing parameter: key={key}, value={value}, type={type(value)}")
             
             if isinstance(value, str):
                 # 辞書フィールド参照: "task2.result.main_dish"
                 if ".result." in value and value.endswith((".main_dish", ".side_dish", ".soup")):
+                    self.logger.info(f"🔍 [EXECUTOR] Match: dict field reference ({value})")
                     field_value = self._extract_field_from_result(value, previous_results)
                     injected[key] = field_value
                     self.logger.info(f"🔗 [EXECUTOR] Extracted field '{value}' = '{field_value}'")
                 
                 # 複数フィールド参照: "task2.result.main_dish,task3.result.main_dish"
                 elif "," in value and ".result." in value:
+                    self.logger.info(f"🔍 [EXECUTOR] Match: multiple fields reference ({value})")
                     field_values = self._extract_multiple_fields(value, previous_results)
                     injected[key] = field_values
                     self.logger.info(f"🔗 [EXECUTOR] Extracted multiple fields '{value}' = {field_values}")
                 
+                # ネストパス参照: "task2.result.data", "task1.result.success" など
+                elif ".result." in value:
+                    self.logger.info(f"🔍 [EXECUTOR] Match: nested path reference ({value})")
+                    resolved_value = self._extract_nested_path(value, previous_results)
+                    if resolved_value is not None:
+                        injected[key] = resolved_value
+                        self.logger.info(f"🔗 [EXECUTOR] Injected nested path '{value}' = {resolved_value}")
+                
                 # 単一タスク結果参照: "task1.result"
                 elif value.endswith(".result"):
+                    self.logger.info(f"🔍 [EXECUTOR] Match: single task result reference ({value})")
                     task_ref = value[:-7]  # "task1.result" -> "task1"
                     
                     if task_ref in previous_results:
@@ -248,6 +260,7 @@ class TaskExecutor:
                     else:
                         self.logger.warning(f"⚠️ [EXECUTOR] Task reference not found in previous_results: {task_ref}")
                 else:
+                    self.logger.info(f"🔍 [EXECUTOR] No match: keeping original value ({value})")
                     # その他の文字列はそのまま保持
                     pass
             
@@ -327,3 +340,45 @@ class TaskExecutor:
         
         self.logger.info(f"🔗 [EXECUTOR] Final extracted values: {results}")
         return results
+    
+    def _extract_nested_path(self, path: str, previous_results: Dict[str, Any]) -> Any:
+        """ネストされたパスを解決（例: task2.result.data）"""
+        parts = path.split(".")
+        if len(parts) < 3:
+            self.logger.warning(f"⚠️ [EXECUTOR] Invalid nested path format: {path}")
+            return None
+        
+        task_id = parts[0]  # "task2"
+        nested_key = parts[2]  # "data"
+        
+        self.logger.info(f"🔍 [EXECUTOR] Extracting nested path: {path}")
+        self.logger.info(f"🔍 [EXECUTOR] task_id={task_id}, nested_key={nested_key}")
+        
+        if task_id not in previous_results:
+            self.logger.warning(f"⚠️ [EXECUTOR] Task '{task_id}' not found")
+            return None
+        
+        task_result = previous_results[task_id]
+        
+        # 254行目と同じロジック: result.result.data を取得
+        if isinstance(task_result, dict) and task_result.get("success"):
+            # タスクのresultを取得
+            result_obj = task_result.get("result", {})
+            
+            if isinstance(result_obj, dict):
+                # 処理のresultがあればそこから取得（二重ネスト対応）
+                if "result" in result_obj and isinstance(result_obj["result"], dict):
+                    inner_result = result_obj["result"]
+                    if nested_key in inner_result:
+                        value = inner_result[nested_key]
+                        self.logger.info(f"🔗 [EXECUTOR] Extracted from result.result.{nested_key}: {value}")
+                        return value
+                
+                # 通常のネスト（後方互換性）
+                if nested_key in result_obj:
+                    value = result_obj[nested_key]
+                    self.logger.info(f"🔗 [EXECUTOR] Extracted from result.{nested_key}: {value}")
+                    return value
+        
+        self.logger.warning(f"⚠️ [EXECUTOR] Could not extract nested path: {path}")
+        return None

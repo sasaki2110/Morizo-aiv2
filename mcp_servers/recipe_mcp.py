@@ -6,6 +6,7 @@ This module provides MCP server for recipe generation with LLM-based tools.
 
 import sys
 import os
+import asyncio
 # プロジェクトルートをPythonのモジュール検索パスに追加
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -347,15 +348,16 @@ async def generate_main_dish_proposals(
         client = get_authenticated_client(user_id, token)
         logger.info(f"🔐 [RECIPE] Authenticated client created for user: {user_id}")
         
-        # LLMで2件生成（除外レシピを渡す）
-        llm_result = await llm_client.generate_main_dish_candidates(
+        # LLMとRAGを並列実行
+        llm_task = llm_client.generate_main_dish_candidates(
             inventory_items, menu_type, main_ingredient, excluded_recipes, count=2
         )
-        
-        # RAGで3件検索（除外レシピを渡す）
-        rag_result = await rag_client.search_main_dish_candidates(
+        rag_task = rag_client.search_main_dish_candidates(
             inventory_items, menu_type, main_ingredient, excluded_recipes, limit=3
         )
+        
+        # 両方の結果を待つ（並列実行）
+        llm_result, rag_result = await asyncio.gather(llm_task, rag_task)
         
         # 統合
         candidates = []

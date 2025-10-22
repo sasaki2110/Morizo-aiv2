@@ -62,10 +62,12 @@ class MCPClient:
             "get_recipe_history_for_user": "recipe",
             "search_menu_from_rag_with_history": "recipe",
             "search_recipe_from_web": "recipe",
+            "generate_main_dish_proposals": "recipe",
             "history_add": "recipe_history",
             "history_list": "recipe_history",
             "history_update_by_id": "recipe_history",
             "history_delete_by_id": "recipe_history",
+            "history_get_recent_titles": "recipe_history",
         }
     
     def get_supabase_client(self) -> Client:

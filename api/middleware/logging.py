@@ -6,7 +6,7 @@ API層 - ログミドルウェア
 """
 
 import time
-from fastapi import Request
+from fastapi import Request, HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from config.loggers import GenericLogger
 

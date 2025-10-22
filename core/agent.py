@@ -204,7 +204,11 @@ class TrueReactAgent:
             self.logger.info(f"💾 [AGENT] Confirmation state saved for session: {task_chain_manager.sse_session_id}")
             
             # ユーザーに確認メッセージを返す（次のリクエストで再開）
-            confirmation_message = self._create_confirmation_message(ambiguity_info)
+            # 曖昧性のタイプに応じて適切なメソッドを呼び出す
+            if hasattr(ambiguity_info, 'details') and ambiguity_info.details.get("type") == "main_ingredient_optional_selection":
+                confirmation_message = self._create_menu_confirmation_message(ambiguity_info)
+            else:
+                confirmation_message = self._create_confirmation_message(ambiguity_info)
             
             # デバッグログ: ambiguity_infoの詳細を出力
             self.logger.info(f"🔍 [AGENT] Ambiguity info details: {ambiguity_info.details if hasattr(ambiguity_info, 'details') else 'No details'}")
@@ -354,3 +358,16 @@ class TrueReactAgent:
         except Exception as e:
             self.logger.error(f"❌ [AGENT] Error creating confirmation message: {e}")
             return "複数の選択肢があります。どちらを選択しますか？"
+    
+    def _create_menu_confirmation_message(self, ambiguity_info) -> str:
+        """
+        献立提案の曖昧性情報から確認メッセージを生成
+        
+        Args:
+            ambiguity_info: 曖昧性情報
+            
+        Returns:
+            確認メッセージ
+        """
+        details = ambiguity_info.details if hasattr(ambiguity_info, 'details') else {}
+        return details.get("message", "複数の選択肢があります。どちらを選択しますか？")
