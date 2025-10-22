@@ -163,6 +163,13 @@ class RecipeHistoryCRUD:
             
             cutoff_date = datetime.now() - timedelta(days=days)
             
+            # カテゴリマッピング
+            category_prefix_map = {
+                "main": "主菜: ",
+                "sub": "副菜: ",
+                "soup": "汁物: "
+            }
+            
             # 指定期間内のレシピを取得
             result = client.table("recipe_historys")\
                 .select("title")\
@@ -170,8 +177,14 @@ class RecipeHistoryCRUD:
                 .gte("cooked_at", cutoff_date.isoformat())\
                 .execute()
             
-            # タイトルのリストを作成
-            titles = [item["title"] for item in result.data]
+            # カテゴリでフィルタリング
+            category_prefix = category_prefix_map.get(category)
+            if category_prefix:
+                titles = [item["title"] for item in result.data 
+                          if item["title"].startswith(category_prefix)]
+            else:
+                # カテゴリ指定がない場合は全件
+                titles = [item["title"] for item in result.data]
             
             self.logger.info(f"✅ [CRUD] Retrieved {len(titles)} recent {category} recipe titles")
             return {"success": True, "data": titles}
