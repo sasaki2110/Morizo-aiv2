@@ -14,6 +14,7 @@ class TaskStatus(Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    WAITING_FOR_USER = "waiting_for_user"
 
 
 @dataclass
