@@ -8,7 +8,7 @@ Phase 2A-1で実装した基盤（タスクの一時停止・再開機能、コ�
 
 Phase 2A-1が完了していること:
 - TaskStatusに `WAITING_FOR_USER`, `PAUSED` が追加されている
-- TaskChainManagerに `pause_task_for_user_selection()`, `resume_task_after_selection()` が実装されている
+- TaskChainManagerに `pause_for_confirmation()`, `resume_execution()` が実装されている
 - ContextManagerに `save_context_for_resume()`, `load_context_for_resume()` が実装されている
 - Phase 2A-1の単体テストがすべて成功している
 
@@ -81,7 +81,7 @@ async def process_user_selection(self, task_id: str, selection: int, sse_session
         task_chain_manager = TaskChainManager(sse_session_id)
         
         # タスクを再開
-        resume_result = task_chain_manager.resume_task_after_selection(task_id, selection)
+        resume_result = task_chain_manager.resume_execution()
         
         if not resume_result["success"]:
             raise Exception(f"Failed to resume task: {resume_result['error']}")
@@ -134,9 +134,6 @@ async def receive_user_selection(
         if not selection_request.task_id:
             raise HTTPException(status_code=400, detail="Task ID is required")
         
-        if not (1 <= selection_request.selection <= 5):
-            raise HTTPException(status_code=400, detail="Selection must be between 1 and 5")
-        
         if not selection_request.sse_session_id:
             raise HTTPException(status_code=400, detail="SSE session ID is required")
         
@@ -178,7 +175,7 @@ from pydantic import BaseModel, Field
 class UserSelectionRequest(BaseModel):
     """ユーザー選択リクエストモデル"""
     task_id: str = Field(..., description="タスクID")
-    selection: int = Field(..., ge=1, le=5, description="選択した番号（1-5）")
+    selection: int = Field(..., description="選択した番号")
     sse_session_id: str = Field(..., description="SSEセッションID")
     
     class Config:
@@ -257,7 +254,7 @@ def format_selection_request(self, candidates: list, task_id: str) -> dict:
 
 **テストケース**:
 - `POST /chat/selection`: エンドポイントが正しく動作するか
-- バリデーションが正しく動作するか（不正な selection、task_id）
+- バリデーションが正しく動作するか（不正な task_id）
 - 認証が正しく動作するか
 - エラーハンドリングが正しく動作するか
 
@@ -327,7 +324,7 @@ from typing import Optional
 class UserSelectionRequest(BaseModel):
     """ユーザー選択リクエストモデル"""
     task_id: str = Field(..., description="タスクID")
-    selection: int = Field(..., ge=1, le=5, description="選択した番号（1-5）")
+    selection: int = Field(..., description="選択した番号")
     sse_session_id: str = Field(..., description="SSEセッションID")
     
     class Config:
@@ -505,7 +502,7 @@ async def process_user_selection(self, task_id: str, selection: int, sse_session
         task_chain_manager = TaskChainManager(sse_session_id)
         
         # タスクを再開
-        resume_result = task_chain_manager.resume_task_after_selection(task_id, selection)
+        resume_result = task_chain_manager.resume_execution()
         
         if not resume_result["success"]:
             raise Exception(f"Failed to resume task: {resume_result['error']}")
@@ -569,7 +566,7 @@ async def test_process_user_selection():
     with patch('core.agent.TaskChainManager') as mock_task_manager_class:
         mock_task_manager = Mock()
         mock_task_manager_class.return_value = mock_task_manager
-        mock_task_manager.resume_task_after_selection.return_value = {
+        mock_task_manager.resume_execution.return_value = {
             "success": True,
             "context": {"selected_recipe": "レンコンのきんぴら"}
         }
@@ -604,9 +601,6 @@ async def receive_user_selection(
         # バリデーション
         if not selection_request.task_id:
             raise HTTPException(status_code=400, detail="Task ID is required")
-        
-        if not (1 <= selection_request.selection <= 5):
-            raise HTTPException(status_code=400, detail="Selection must be between 1 and 5")
         
         if not selection_request.sse_session_id:
             raise HTTPException(status_code=400, detail="SSE session ID is required")
@@ -811,7 +805,7 @@ class TestPhase2A2Regression:
         """Phase 2A-1のTaskChainManagerテストを再実行"""
         test_instance = TestTaskChainManager()
         test_instance.test_pause_task_for_user_selection()
-        test_instance.test_resume_task_after_selection()
+        test_instance.test_resume_execution()
         test_instance.test_task_status_updates()
     
     def test_phase2a1_context_manager_regression(self):
@@ -881,12 +875,12 @@ class TestPhase2A2Regression:
 - タスクチェーンマネージャーでタスクIDを正しく設定
 - コンテキストの保存・復元を確認
 
-#### 2. 選択番号のバリデーションエラー
-**問題**: `Selection must be between 1 and 5`
-**原因**: フロントエンドから無効な選択番号が送信される
+#### 2. タスクIDのバリデーションエラー
+**問題**: `Task ID is required`
+**原因**: フロントエンドからタスクIDが送信されない
 **解決方法**:
-- フロントエンドでのバリデーション強化
-- バックエンドでのバリデーション確認
+- フロントエンドでのタスクID管理確認
+- バックエンドでのタスクID検証確認
 
 #### 3. SSEセッションIDの不一致
 **問題**: `SSE session ID is required`
@@ -923,7 +917,6 @@ class TestPhase2A2Regression:
 - ユーザーIDの検証
 
 ### 2. 入力検証
-- 選択番号の範囲チェック
 - タスクIDの形式チェック
 
 ### 3. セッション管理

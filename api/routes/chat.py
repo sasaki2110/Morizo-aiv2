@@ -14,6 +14,23 @@ from config.loggers import GenericLogger
 from ..models import ChatRequest, ChatResponse, ProgressUpdate
 from ..utils.sse_manager import get_sse_sender
 from core.agent import TrueReactAgent
+from ..request_models import UserSelectionRequest
+from ..utils.auth_handler import get_auth_handler
+
+
+async def verify_token_dependency(request: Request):
+    """トークン検証の依存関係"""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Authorization header missing or invalid")
+    
+    token = auth_header.split(" ")[1]
+    auth_handler = get_auth_handler()
+    user_info = await auth_handler.verify_token(token)
+    if not user_info:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    return token
 
 router = APIRouter()
 logger = GenericLogger("api", "chat")
@@ -236,3 +253,46 @@ def _create_sse_event(event_type: str, data: Dict[str, Any]) -> str:
     }
     
     return json.dumps(event, ensure_ascii=False)
+
+
+@router.post("/chat/selection")
+async def receive_user_selection(
+    selection_request: UserSelectionRequest,
+    token: str = Depends(verify_token_dependency)
+):
+    """ユーザーの選択結果を受信"""
+    try:
+        # トークンからユーザー情報を取得（既に検証済み）
+        auth_handler = get_auth_handler()
+        user_info = await auth_handler.verify_token(token)
+        user_id = user_info["user_id"]
+        
+        # バリデーション（基本的な必須項目のみ）
+        if not selection_request.task_id:
+            raise HTTPException(status_code=400, detail="Task ID is required")
+        
+        if not selection_request.sse_session_id:
+            raise HTTPException(status_code=400, detail="SSE session ID is required")
+        
+        logger.info(f"📥 [API] Received user selection: task_id={selection_request.task_id}, selection={selection_request.selection}")
+        
+        # エージェントで選択結果を処理
+        agent = TrueReactAgent()
+        result = await agent.process_user_selection(
+            selection_request.task_id,
+            selection_request.selection,
+            selection_request.sse_session_id,
+            user_id,
+            token
+        )
+        
+        if not result["success"]:
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ [API] Failed to receive user selection: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

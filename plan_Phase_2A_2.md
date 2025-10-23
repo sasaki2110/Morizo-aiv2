@@ -8,7 +8,7 @@ Phase 2A-1で実装した基盤（タスクの一時停止・再開機能、コ�
 
 Phase 2A-1が完了していること:
 - TaskStatusに `WAITING_FOR_USER`, `PAUSED` が追加されている
-- TaskChainManagerに `pause_task_for_user_selection()`, `resume_task_after_selection()` が実装されている
+- TaskChainManagerに `pause_for_confirmation()`, `resume_execution()` が実装されている
 - ContextManagerに `save_context_for_resume()`, `load_context_for_resume()` が実装されている
 - Phase 2A-1の単体テストがすべて成功している
 
@@ -81,7 +81,7 @@ async def process_user_selection(self, task_id: str, selection: int, sse_session
         task_chain_manager = TaskChainManager(sse_session_id)
         
         # タスクを再開
-        resume_result = task_chain_manager.resume_task_after_selection(task_id, selection)
+        resume_result = task_chain_manager.resume_execution()
         
         if not resume_result["success"]:
             raise Exception(f"Failed to resume task: {resume_result['error']}")
@@ -130,12 +130,9 @@ async def receive_user_selection(
     try:
         user_id = get_user_id_from_token(token)
         
-        # バリデーション
+        # バリデーション（基本的な必須項目のみ）
         if not selection_request.task_id:
             raise HTTPException(status_code=400, detail="Task ID is required")
-        
-        if not (1 <= selection_request.selection <= 5):
-            raise HTTPException(status_code=400, detail="Selection must be between 1 and 5")
         
         if not selection_request.sse_session_id:
             raise HTTPException(status_code=400, detail="SSE session ID is required")
@@ -178,7 +175,7 @@ from pydantic import BaseModel, Field
 class UserSelectionRequest(BaseModel):
     """ユーザー選択リクエストモデル"""
     task_id: str = Field(..., description="タスクID")
-    selection: int = Field(..., ge=1, le=5, description="選択した番号（1-5）")
+    selection: int = Field(..., description="選択した番号")
     sse_session_id: str = Field(..., description="SSEセッションID")
     
     class Config:
@@ -257,7 +254,7 @@ def format_selection_request(self, candidates: list, task_id: str) -> dict:
 
 **テストケース**:
 - `POST /chat/selection`: エンドポイントが正しく動作するか
-- バリデーションが正しく動作するか（不正な selection、task_id）
+- バリデーションが正しく動作するか（不正な task_id）
 - 認証が正しく動作するか
 - エラーハンドリングが正しく動作するか
 

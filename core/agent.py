@@ -371,3 +371,68 @@ class TrueReactAgent:
         """
         details = ambiguity_info.details if hasattr(ambiguity_info, 'details') else {}
         return details.get("message", "複数の選択肢があります。どちらを選択しますか？")
+    
+    async def handle_user_selection_required(self, candidates: list, context: dict, task_chain_manager: TaskChainManager) -> dict:
+        """ユーザー選択が必要な場合の処理"""
+        try:
+            # タスクIDを取得
+            task_id = context.get('current_task_id')
+            if not task_id:
+                raise ValueError("No task ID found in context")
+            
+            # タスクを一時停止
+            pause_result = task_chain_manager.pause_task_for_user_selection(task_id, context)
+            
+            if not pause_result["success"]:
+                raise Exception(f"Failed to pause task: {pause_result['error']}")
+            
+            self.logger.info(f"⏸️ [AGENT] Task {task_id} paused for user selection")
+            
+            # フロントエンドに選択要求を送信
+            response = {
+                "success": True,
+                "requires_selection": True,
+                "candidates": candidates,
+                "task_id": task_id,
+                "message": "以下の5件から選択してください:"
+            }
+            
+            return response
+            
+        except Exception as e:
+            self.logger.error(f"❌ [AGENT] Failed to handle user selection required: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "requires_selection": False
+            }
+    
+    async def process_user_selection(self, task_id: str, selection: int, sse_session_id: str, user_id: str, token: str) -> dict:
+        """ユーザー選択結果の処理"""
+        try:
+            self.logger.info(f"📥 [AGENT] Processing user selection: task_id={task_id}, selection={selection}")
+            
+            # タスクチェーンマネージャーを初期化（SSEセッションIDから復元）
+            task_chain_manager = TaskChainManager(sse_session_id)
+            
+            # タスクを再開
+            task_chain_manager.resume_execution()
+            
+            self.logger.info(f"▶️ [AGENT] Task {task_id} resumed successfully")
+            
+            # 選択されたレシピをもとに後続処理を実行
+            # （Phase 2Bで副菜・汁物の選択に進む処理を追加予定）
+            
+            return {
+                "success": True,
+                "task_id": task_id,
+                "selection": selection,
+                "message": f"選択肢 {selection} を受け付けました。"
+            }
+            
+        except Exception as e:
+            self.logger.error(f"❌ [AGENT] Failed to process user selection: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
