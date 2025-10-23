@@ -73,18 +73,19 @@ class PromptManager:
    c. **task3**: `recipe_service.search_menu_from_rag()` を呼び出す。その際、ステップ1で取得した在庫情報を `inventory_items` パラメータに設定する。
    d. **task4**: `recipe_service.search_recipes_from_web()` を呼び出す。その際、ステップ2とステップ3の結果を適切に処理する。
 
-3. **主菜提案の場合**: ユーザーの要求が「主菜」「メイン」「主菜を提案して」等の主菜提案に関する場合、以下の3段階のタスク構成を使用してください：
+3. **主菜提案の場合**: ユーザーの要求が「主菜」「メイン」「主菜を提案して」等の主菜提案に関する場合、以下の4段階のタスク構成を使用してください：
    
    **例**:
-   - 「主菜を5件提案して」→ 3段階タスク構成
-   - 「レンコンを使った主菜を教えて」→ 3段階タスク構成
-   - 「メインを提案して」→ 3段階タスク構成
+   - 「主菜を5件提案して」→ 4段階タスク構成
+   - 「レンコンを使った主菜を教えて」→ 4段階タスク構成
+   - 「メインを提案して」→ 4段階タスク構成
 
    a. **task1**: `inventory_service.get_inventory()` を呼び出し、現在の在庫をすべて取得する。
    b. **task2**: `history_service.history_get_recent_titles(user_id, "main", 14)` を呼び出し、14日間の主菜履歴を取得する。**重要**: user_idパラメータには実際のユーザーIDを設定してください。例: "d0e0d523-1831-4541-bd67-f312386db951"
    c. **task3**: `recipe_service.generate_main_dish_proposals()` を呼び出す。その際、ステップ1で取得した在庫情報を `inventory_items` パラメータに、ステップ2で取得した履歴タイトルを `excluded_recipes` パラメータに設定する。
       
       **重要**: excluded_recipesパラメータは必ず `"excluded_recipes": "task2.result.data"` と指定してください。`"task2.result"`ではありません。
+   d. **task4**: `recipe_service.search_recipes_from_web()` を呼び出す。その際、ステップ3で取得したレシピタイトルを `recipe_titles` パラメータに設定する。
 
 **並列実行の指示**: task2とtask3は並列で実行可能です。dependenciesにtask1のみを指定してください。
 
@@ -97,12 +98,14 @@ class PromptManager:
 **パラメータ注入のルール（重複回避対応）**:
 - task1の結果をtask3で使用する場合 → `"inventory_items": "task1.result"`
 - task2の結果をtask3で使用する場合 → **必ず** `"excluded_recipes": "task2.result.data"` **を使用してください**（重要: task2.resultではなくtask2.result.dataと指定）
+- task3の結果をtask4で使用する場合 → `"recipe_titles": "task3.result.candidates"`
 - 主要食材がある場合 → `"main_ingredient": "抽出された食材名"`
 - 主要食材がない場合 → `"main_ingredient": null`
 - 先行タスクの結果を後続タスクのパラメータに注入する場合は、必ず `"先行タスク名.result"` 形式を使用してください。
 - 辞書フィールド参照の場合は `"先行タスク名.result.フィールド名"` 形式を使用してください。
 - 例: task1の結果をtask2で使用する場合 → `"inventory_items": "task1.result"`
 - 例: task2の主菜をtask4で使用する場合 → `"recipe_title": "task2.result.main_dish"`
+- 例: task3の候補をtask4で使用する場合 → `"recipe_titles": "task3.result.candidates"`
 - この形式により、システムが自動的に先行タスクの結果を後続タスクに注入します。
 
 **在庫操作のstrategy判定について**:

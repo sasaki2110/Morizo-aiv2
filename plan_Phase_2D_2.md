@@ -2,86 +2,43 @@
 
 ## 概要
 
-主菜提案にWeb検索機能を追加した4タスク構成に対応するフロントエンド実装を行います。レシピの画像表示、詳細情報表示、ポップアップモーダルなどの機能を実装します。
+主菜提案にWeb検索機能を追加した4タスク構成に対応するフロントエンド実装を行います。既存のプリ画像抽出機能を活用してレシピの画像表示、詳細情報表示、URL遷移などの機能を実装します。
 
 ## 実装内容
 
-1. **レシピ画像表示コンポーネント**
+1. **RecipeCandidate型の拡張**
 2. **SelectionOptionsの拡張**
-3. **レシピ詳細モーダル**
+3. **既存ImageHandlerコンポーネントの活用**
+4. **レシピ詳細モーダル**
 
-## Phase 2D-2-1: レシピ画像表示コンポーネント
+## Phase 2D-2-1: RecipeCandidate型の拡張
 
-### **新規作成ファイル**
-- **ファイル**: `/app/Morizo-web/components/RecipeImageViewer.tsx`
-- **目的**: レシピ画像の表示とポップアップ機能
+### **修正する場所**
+- **ファイル**: `/app/Morizo-web/types/menu.ts`
+- **対象**: `RecipeCandidate`インターフェース
 
-### **実装する機能**
-1. **画像表示コンポーネント**
-2. **ポップアップビューアー**
-3. **詳細サイト遷移機能**
-4. **レスポンシブ対応**
+### **修正する内容**
+1. **URL情報の追加**
+2. **既存フィールドの維持**
 
-### **具体的な実装**
+### **具体的な変更**
 ```typescript
-interface RecipeImageViewerProps {
-  recipes: RecipeWithImage[];
-  onRecipeClick: (recipe: RecipeWithImage) => void;
-}
-
-interface RecipeWithImage {
+export interface RecipeCandidate {
+  /** レシピのタイトル */
   title: string;
-  url: string;
-  imageUrl?: string;
+  /** 食材リスト */
+  ingredients: string[];
+  /** 調理時間（オプション） */
+  cooking_time?: string;
+  /** 説明（オプション） */
   description?: string;
-  site?: string;
-  source?: string;
+  /** カテゴリ */
+  category?: 'main' | 'sub' | 'soup';
+  /** ソース（LLM/RAG/Web） */
+  source?: 'llm' | 'rag' | 'web';
+  /** URL情報（新規追加） */
+  urls?: RecipeUrl[];
 }
-
-const RecipeImageViewer: React.FC<RecipeImageViewerProps> = ({ 
-  recipes, 
-  onRecipeClick 
-}) => {
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      {recipes.map((recipe, index) => (
-        <div 
-          key={index}
-          className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden cursor-pointer hover:shadow-lg transition-shadow"
-          onClick={() => onRecipeClick(recipe)}
-        >
-          {recipe.imageUrl && (
-            <div className="aspect-w-16 aspect-h-9">
-              <img 
-                src={recipe.imageUrl} 
-                alt={recipe.title}
-                className="w-full h-48 object-cover"
-                onError={(e) => {
-                  e.currentTarget.src = '/placeholder-recipe.jpg';
-                }}
-              />
-            </div>
-          )}
-          <div className="p-4">
-            <h3 className="text-lg font-medium text-gray-800 dark:text-white mb-2">
-              {recipe.title}
-            </h3>
-            {recipe.description && (
-              <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">
-                {recipe.description}
-              </p>
-            )}
-            {recipe.site && (
-              <span className="text-xs text-blue-600 dark:text-blue-400">
-                {recipe.site}
-              </span>
-            )}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-};
 ```
 
 ## Phase 2D-2-2: SelectionOptionsの拡張
@@ -91,34 +48,22 @@ const RecipeImageViewer: React.FC<RecipeImageViewerProps> = ({
 - **対象**: レシピ表示部分
 
 ### **修正する内容**
-1. **画像表示機能の追加**
-2. **詳細表示ボタンの追加**
-3. **Web検索結果の統合表示**
+1. **既存ImageHandlerコンポーネントの活用**
+2. **URL情報の表示**
+3. **詳細サイト遷移機能の追加**
+4. **モーダル表示機能の追加**
 
 ### **具体的な変更**
 ```typescript
-interface SelectionOptionsProps {
-  candidates: RecipeCandidate[];
-  webSearchResults?: RecipeWithImage[]; // 追加
-  onSelect: (selection: number) => void;
-  onViewDetails: (recipe: RecipeCandidate) => void; // 追加
-  taskId: string;
-  sseSessionId: string;
-  isLoading?: boolean;
-}
-
-// レシピカードに画像表示と詳細ボタンを追加
+// レシピカードに画像表示とURL遷移を追加
 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 border-2 transition-all duration-200">
-  {/* 画像表示 */}
-  {webSearchResults?.[index]?.imageUrl && (
+  {/* 画像表示（既存のImageHandlerコンポーネントを活用） */}
+  {candidate.urls && candidate.urls.length > 0 && (
     <div className="mb-3">
-      <img 
-        src={webSearchResults[index].imageUrl} 
-        alt={candidate.title}
-        className="w-full h-32 object-cover rounded-lg"
-        onError={(e) => {
-          e.currentTarget.style.display = 'none';
-        }}
+      <ImageHandler
+        urls={candidate.urls}
+        title={candidate.title}
+        onUrlClick={(url) => window.open(url, '_blank')}
       />
     </div>
   )}
@@ -133,19 +78,33 @@ interface SelectionOptionsProps {
     </label>
   </div>
   
-  {/* 詳細表示ボタン */}
-  <div className="mt-3">
-    <button 
-      onClick={() => onViewDetails(candidate)}
-      className="w-full px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-md transition-colors"
-    >
-      詳細を見る
-    </button>
-  </div>
+  {/* URL遷移ボタン */}
+  {candidate.urls && candidate.urls.length > 0 && (
+    <div className="mt-3">
+      <button 
+        onClick={() => window.open(candidate.urls[0].url, '_blank')}
+        className="w-full px-3 py-2 text-sm bg-blue-100 hover:bg-blue-200 dark:bg-blue-900 dark:hover:bg-blue-800 text-blue-700 dark:text-blue-300 rounded-md transition-colors"
+      >
+        レシピサイトを見る
+      </button>
+    </div>
+  )}
+  
+  {/* 詳細モーダルボタン */}
+  {candidate.urls && candidate.urls.length > 0 && (
+    <div className="mt-2">
+      <button 
+        onClick={() => onViewDetails(candidate)}
+        className="w-full px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-md transition-colors"
+      >
+        詳細を見る
+      </button>
+    </div>
+  )}
 </div>
 ```
 
-## Phase 2D-2-3: レシピ詳細モーダル
+## Phase 2D-2-4: レシピ詳細モーダル
 
 ### **新規作成ファイル**
 - **ファイル**: `/app/Morizo-web/components/RecipeDetailModal.tsx`
@@ -153,7 +112,7 @@ interface SelectionOptionsProps {
 
 ### **実装する機能**
 1. **レシピ詳細情報の表示**
-2. **画像の拡大表示**
+2. **既存ImageHandlerコンポーネントの活用**
 3. **外部サイトへの遷移**
 4. **レスポンシブ対応**
 
@@ -162,7 +121,7 @@ interface SelectionOptionsProps {
 interface RecipeDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
-  recipe: RecipeWithImage;
+  recipe: RecipeCandidate;
 }
 
 const RecipeDetailModal: React.FC<RecipeDetailModalProps> = ({
@@ -171,7 +130,9 @@ const RecipeDetailModal: React.FC<RecipeDetailModalProps> = ({
   recipe
 }) => {
   const handleVisitSite = () => {
-    window.open(recipe.url, '_blank');
+    if (recipe.urls && recipe.urls.length > 0) {
+      window.open(recipe.urls[0].url, '_blank');
+    }
   };
 
   if (!isOpen) return null;
@@ -193,32 +154,48 @@ const RecipeDetailModal: React.FC<RecipeDetailModalProps> = ({
             </button>
           </div>
           
-          {/* 画像 */}
-          {recipe.imageUrl && (
+          {/* 画像表示（既存のImageHandlerコンポーネントを活用） */}
+          {recipe.urls && recipe.urls.length > 0 && (
             <div className="mb-4">
-              <img 
-                src={recipe.imageUrl} 
-                alt={recipe.title}
-                className="w-full h-64 object-cover rounded-lg"
+              <ImageHandler
+                urls={recipe.urls}
+                title={recipe.title}
+                onUrlClick={(url) => window.open(url, '_blank')}
               />
+            </div>
+          )}
+          
+          {/* 食材情報 */}
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-2">
+              使用食材
+            </h3>
+            <p className="text-gray-700 dark:text-gray-300">
+              {recipe.ingredients.join(', ')}
+            </p>
+          </div>
+          
+          {/* 調理時間 */}
+          {recipe.cooking_time && (
+            <div className="mb-4">
+              <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-2">
+                調理時間
+              </h3>
+              <p className="text-gray-700 dark:text-gray-300">
+                {recipe.cooking_time}
+              </p>
             </div>
           )}
           
           {/* 説明 */}
           {recipe.description && (
             <div className="mb-4">
+              <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-2">
+                説明
+              </h3>
               <p className="text-gray-700 dark:text-gray-300">
                 {recipe.description}
               </p>
-            </div>
-          )}
-          
-          {/* サイト情報 */}
-          {recipe.site && (
-            <div className="mb-4">
-              <span className="text-sm text-gray-600 dark:text-gray-400">
-                提供サイト: {recipe.site}
-              </span>
             </div>
           )}
           
@@ -244,16 +221,34 @@ const RecipeDetailModal: React.FC<RecipeDetailModalProps> = ({
 };
 ```
 
-## Phase 2D-2-4: ChatSectionの拡張
+## Phase 2D-2-5: 既存ImageHandlerコンポーネントの活用
+
+### **活用する既存コンポーネント**
+- **ファイル**: `/app/Morizo-web/components/ImageHandler.tsx`
+- **ファイル**: `/app/Morizo-web/lib/image-extractor.ts`
+
+### **既存機能の活用**
+1. **プリ画像抽出**: URLから自動的に画像を抽出
+2. **遅延読み込み**: Intersection Observerによる最適化
+3. **エラーハンドリング**: 画像読み込み失敗時の適切な処理
+4. **レスポンシブ対応**: モバイル・デスクトップ両対応
+
+### **実装方針**
+- 新規コンポーネントの作成は不要
+- 既存のImageHandlerコンポーネントをそのまま活用
+- SelectionOptions内でImageHandlerを呼び出す
+- URL情報があれば自動的に画像表示
+
+## Phase 2D-2-6: ChatSectionの拡張
 
 ### **修正する場所**
 - **ファイル**: `/app/Morizo-web/components/ChatSection.tsx`
 - **対象**: 選択UI表示部分
 
 ### **修正する内容**
-1. **Web検索結果の統合表示**
-2. **画像表示機能の追加**
-3. **詳細モーダルの統合**
+1. **URL情報の統合表示**
+2. **ImageHandlerコンポーネントの統合**
+3. **モーダル表示機能の統合**
 
 ### **具体的な変更**
 ```typescript
@@ -262,7 +257,6 @@ const RecipeDetailModal: React.FC<RecipeDetailModalProps> = ({
   <div className="ml-8">
     <SelectionOptions
       candidates={message.candidates}
-      webSearchResults={message.webSearchResults} // 追加
       onSelect={handleSelection}
       onViewDetails={handleViewDetails} // 追加
       taskId={message.taskId}
@@ -272,83 +266,98 @@ const RecipeDetailModal: React.FC<RecipeDetailModalProps> = ({
   </div>
 )}
 
-// 詳細モーダルの状態管理
-const [selectedRecipe, setSelectedRecipe] = useState<RecipeWithImage | null>(null);
+// モーダルの状態管理
+const [selectedRecipe, setSelectedRecipe] = useState<RecipeCandidate | null>(null);
 const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
 
 const handleViewDetails = (recipe: RecipeCandidate) => {
-  // Web検索結果から対応するレシピを検索
-  const webRecipe = webSearchResults?.find(r => r.title === recipe.title);
-  if (webRecipe) {
-    setSelectedRecipe(webRecipe);
-    setIsDetailModalOpen(true);
-  }
+  setSelectedRecipe(recipe);
+  setIsDetailModalOpen(true);
 };
+
+// モーダルの表示
+{isDetailModalOpen && selectedRecipe && (
+  <RecipeDetailModal
+    isOpen={isDetailModalOpen}
+    onClose={() => {
+      setIsDetailModalOpen(false);
+      setSelectedRecipe(null);
+    }}
+    recipe={selectedRecipe}
+  />
+)}
 ```
 
-## Phase 2D-2-5: 型定義の追加
+## Phase 2D-2-7: バックエンドレスポンス統合
 
-### **新規作成ファイル**
-- **ファイル**: `/app/Morizo-web/types/recipe.ts`
-- **目的**: レシピ関連の型定義
+### **修正する場所**
+- **ファイル**: `/app/Morizo-aiv2/services/llm/response_processor.py`
+- **対象**: `_process_service_method()`メソッド
 
-### **実装する型定義**
-```typescript
-export interface RecipeWithImage {
-  title: string;
-  url: string;
-  imageUrl?: string;
-  description?: string;
-  site?: string;
-  source?: string;
-}
+### **修正する内容**
+1. **task3とtask4の結果統合**
+2. **URL情報の統合**
+3. **フロントエンド向けレスポンス形式の統一**
 
-export interface RecipeCandidate {
-  title: string;
-  ingredients: string[];
-  cooking_time?: string;
-  description?: string;
-  source?: string;
-}
-
-export interface WebSearchResult {
-  recipes: RecipeWithImage[];
-  success: boolean;
-  error?: string;
-}
+### **具体的な変更**
+```python
+elif service_method == "recipe_service.generate_main_dish_proposals":
+    # 主菜提案の場合は選択UI用のデータを生成
+    if data.get("success") and data.get("data", {}).get("candidates"):
+        candidates = data["data"]["candidates"]
+        
+        # task4のWeb検索結果を統合（実装予定）
+        # web_search_results = get_web_search_results(task_id)
+        # for i, candidate in enumerate(candidates):
+        #     if i < len(web_search_results):
+        #         candidate["urls"] = web_search_results[i]["urls"]
+        
+        # 選択UI用のデータを返す
+        return [], {
+            "requires_selection": True,
+            "candidates": candidates,
+            "task_id": task_id,
+            "message": "以下の5件から選択してください:"
+        }
+    else:
+        # エラー時は従来のテキスト表示
+        response_parts.extend(self.formatters.format_main_dish_proposals(data))
 ```
 
 ## 実装順序
 
-1. **Phase 2D-2-1** → レシピ画像表示コンポーネント
+1. **Phase 2D-2-1** → RecipeCandidate型の拡張
 2. **Phase 2D-2-2** → SelectionOptionsの拡張
-3. **Phase 2D-2-3** → レシピ詳細モーダル
-4. **Phase 2D-2-4** → ChatSectionの拡張
-5. **Phase 2D-2-5** → 型定義の追加
+3. **Phase 2D-2-3** → 既存ImageHandlerコンポーネントの活用
+4. **Phase 2D-2-4** → レシピ詳細モーダル
+5. **Phase 2D-2-5** → 既存ImageHandlerコンポーネントの活用
+6. **Phase 2D-2-6** → ChatSectionの拡張
+7. **Phase 2D-2-7** → バックエンドレスポンス統合
 
 ## 期待される効果
 
 ### **ユーザー体験の改善**
-- **画像表示**: レシピの見た目を確認可能
+- **画像表示**: 既存のプリ画像抽出機能でレシピの見た目を確認可能
+- **URL遷移**: レシピサイトへの直接アクセス
 - **詳細情報**: レシピの説明とサイト情報を確認可能
-- **ポップアップモーダル**: 見やすい詳細表示
-- **外部サイト遷移**: 詳細なレシピ情報へのアクセス
+- **モーダル表示**: 見やすい詳細表示とポップアップ機能
+- **既存機能活用**: 既存のImageHandlerコンポーネントを活用
 
 ### **技術的改善**
-- **コンポーネント化**: 再利用可能なUIコンポーネント
-- **レスポンシブ対応**: モバイル・デスクトップ両対応
-- **エラーハンドリング**: 画像読み込み失敗時の適切な処理
-- **型安全性**: TypeScriptによる型定義
+- **既存機能活用**: 新規コンポーネント作成不要
+- **型安全性**: TypeScriptによる型定義の拡張
+- **レスポンシブ対応**: 既存のImageHandlerの機能を活用
+- **エラーハンドリング**: 既存の画像読み込み失敗時の処理を活用
 
 ## 制約事項
 
 - **既存機能の維持**: Phase 1-2の機能を破壊しない
-- **パフォーマンス**: 画像読み込み時間の考慮
-- **エラーハンドリング**: 画像読み込み失敗時の処理
-- **レスポンシブ**: モバイル・デスクトップ両対応
+- **パフォーマンス**: 既存の遅延読み込み機能を活用
+- **エラーハンドリング**: 既存の画像読み込み失敗時の処理を活用
+- **レスポンシブ**: 既存のImageHandlerの機能を活用
 
 ## 次のフェーズ
 
 - **Phase 2D-3**: 結合試験
 
-この実装により、フロントエンド側でレシピの画像表示、詳細情報表示、ポップアップモーダルなどの機能が完成し、ユーザーが詳細情報を確認してから選択できるUIが実現されます。
+この実装により、フロントエンド側で既存のプリ画像抽出機能を活用してレシピの画像表示、URL遷移、詳細情報表示、モーダル表示などの機能が完成し、ユーザーが詳細情報を確認してから選択できるUIが実現されます。

@@ -224,10 +224,14 @@ class ResponseProcessor:
                 # 主菜提案の場合は選択UI用のデータを生成
                 if data.get("success") and data.get("data", {}).get("candidates"):
                     candidates = data["data"]["candidates"]
+                    
+                    # task4のWeb検索結果を統合（4タスク構成の場合）
+                    candidates_with_urls = self._integrate_web_search_results(candidates, task_id)
+                    
                     # 選択UI用のデータを返す
                     return [], {
                         "requires_selection": True,
-                        "candidates": candidates,
+                        "candidates": candidates_with_urls,
                         "task_id": task_id,
                         "message": "以下の5件から選択してください:"
                     }
@@ -244,6 +248,127 @@ class ResponseProcessor:
             response_parts.append(f"データの処理中にエラーが発生しました: {str(e)}")
         
         return response_parts, menu_data
+    
+    def _integrate_web_search_results(self, candidates: List[Dict[str, Any]], task_id: str) -> List[Dict[str, Any]]:
+        """
+        Web検索結果を主菜提案結果に統合
+        
+        Args:
+            candidates: 主菜提案の候補リスト
+            task_id: タスクID
+        
+        Returns:
+            URL情報が統合された候補リスト
+        """
+        try:
+            # タスク実行履歴からtask4のWeb検索結果を取得
+            web_search_results = self._get_web_search_results_from_task_history(task_id)
+            
+            if not web_search_results:
+                self.logger.info(f"🔍 [ResponseProcessor] No web search results found for task {task_id}")
+                return candidates
+            
+            # 候補とWeb検索結果を統合
+            integrated_candidates = []
+            for i, candidate in enumerate(candidates):
+                integrated_candidate = candidate.copy()
+                
+                # 対応するWeb検索結果を取得
+                if i < len(web_search_results):
+                    web_result = web_search_results[i]
+                    if web_result.get("success") and web_result.get("data"):
+                        # URL情報を統合
+                        integrated_candidate["urls"] = self._extract_urls_from_web_result(web_result["data"])
+                        self.logger.info(f"🔗 [ResponseProcessor] Integrated URLs for candidate {i}: {len(integrated_candidate.get('urls', []))} URLs")
+                    else:
+                        self.logger.warning(f"⚠️ [ResponseProcessor] Web search failed for candidate {i}")
+                else:
+                    self.logger.warning(f"⚠️ [ResponseProcessor] No web search result for candidate {i}")
+                
+                integrated_candidates.append(integrated_candidate)
+            
+            self.logger.info(f"✅ [ResponseProcessor] Successfully integrated web search results for {len(integrated_candidates)} candidates")
+            return integrated_candidates
+            
+        except Exception as e:
+            self.logger.error(f"❌ [ResponseProcessor] Error integrating web search results: {e}")
+            return candidates
+    
+    def _get_web_search_results_from_task_history(self, task_id: str) -> List[Dict[str, Any]]:
+        """
+        タスク実行履歴からWeb検索結果を取得
+        
+        Args:
+            task_id: タスクID
+        
+        Returns:
+            Web検索結果のリスト
+        """
+        try:
+            # タスク実行履歴からtask4の結果を取得
+            # 実際の実装では、タスク実行履歴サービスを使用
+            # ここでは簡易実装として空のリストを返す
+            self.logger.info(f"🔍 [ResponseProcessor] Getting web search results for task {task_id}")
+            
+            # TODO: 実際のタスク実行履歴サービスから取得
+            # task_history = self.task_history_service.get_task_results(task_id)
+            # web_search_results = task_history.get("task4", {}).get("result", [])
+            
+            return []
+            
+        except Exception as e:
+            self.logger.error(f"❌ [ResponseProcessor] Error getting web search results: {e}")
+            return []
+    
+    def _extract_urls_from_web_result(self, web_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Web検索結果からURL情報を抽出
+        
+        Args:
+            web_data: Web検索結果データ
+        
+        Returns:
+            URL情報のリスト
+        """
+        try:
+            urls = []
+            
+            # Web検索結果の構造に応じてURL情報を抽出
+            if isinstance(web_data, dict):
+                # レシピリストからURL情報を抽出
+                recipes = web_data.get("recipes", [])
+                for recipe in recipes:
+                    if isinstance(recipe, dict) and "url" in recipe:
+                        url_info = {
+                            "title": recipe.get("title", ""),
+                            "url": recipe.get("url", ""),
+                            "domain": self._extract_domain(recipe.get("url", ""))
+                        }
+                        urls.append(url_info)
+            
+            self.logger.info(f"🔗 [ResponseProcessor] Extracted {len(urls)} URLs from web result")
+            return urls
+            
+        except Exception as e:
+            self.logger.error(f"❌ [ResponseProcessor] Error extracting URLs: {e}")
+            return []
+    
+    def _extract_domain(self, url: str) -> str:
+        """
+        URLからドメイン名を抽出
+        
+        Args:
+            url: URL文字列
+        
+        Returns:
+            ドメイン名
+        """
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            return parsed.netloc
+        except Exception:
+            return ""
     
     def _handle_empty_response(self, response_parts: List[str], menu_data: Optional[Dict[str, Any]]) -> tuple[str, Optional[Dict[str, Any]]]:
         """

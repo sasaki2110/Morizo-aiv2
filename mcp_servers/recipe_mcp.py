@@ -201,6 +201,23 @@ async def search_menu_from_rag_with_history(
         return {"success": False, "error": str(e)}
 
 
+def extract_recipe_titles_from_proposals(proposals_result: Dict[str, Any]) -> List[str]:
+    """主菜提案結果からレシピタイトルを抽出"""
+    titles = []
+    
+    if proposals_result.get("success") and "data" in proposals_result:
+        data = proposals_result["data"]
+        if "candidates" in data:
+            candidates = data["candidates"]
+            for candidate in candidates:
+                if isinstance(candidate, dict) and "title" in candidate:
+                    titles.append(candidate["title"])
+                elif isinstance(candidate, str):
+                    titles.append(candidate)
+    
+    return titles
+
+
 @mcp.tool()
 async def search_recipe_from_web(
     recipe_titles: List[str], 
@@ -211,10 +228,10 @@ async def search_recipe_from_web(
     menu_source: str = "mixed"
 ) -> Dict[str, Any]:
     """
-    Web検索によるレシピ検索（複数料理名対応・並列実行・詳細分類）
+    Web検索によるレシピ検索（主菜提案対応・複数料理名対応・並列実行・詳細分類）
     
     Args:
-        recipe_titles: 検索するレシピタイトルのリスト
+        recipe_titles: 検索するレシピタイトルのリスト（主菜提案結果のcandidatesから抽出可能）
         num_results: 各料理名あたりの取得結果数
         user_id: ユーザーID（一貫性のため受け取るが使用しない）
         token: 認証トークン
@@ -222,7 +239,7 @@ async def search_recipe_from_web(
         menu_source: 検索元（llm, rag, mixed）
     
     Returns:
-        Dict[str, Any]: 分類された検索結果のレシピリスト
+        Dict[str, Any]: 分類された検索結果のレシピリスト（画像URL含む）
     """
     logger.info(f"🔧 [RECIPE] Starting search_recipe_from_web for {len(recipe_titles)} titles: {recipe_titles}, num_results: {num_results}")
     logger.info(f"📊 [RECIPE] Menu categories: {menu_categories}, source: {menu_source}")
