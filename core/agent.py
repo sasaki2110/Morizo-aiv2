@@ -58,7 +58,7 @@ class TrueReactAgent:
         from services.session_service import SessionService
         self.session_service = SessionService()
     
-    async def process_request(self, user_request: str, user_id: str, token: str, sse_session_id: Optional[str] = None, is_confirmation_response: bool = False) -> str:
+    async def process_request(self, user_request: str, user_id: str, token: str, sse_session_id: Optional[str] = None, is_confirmation_response: bool = False) -> Dict[str, Any]:
         """
         Process user request through the complete ReAct loop.
         
@@ -152,15 +152,26 @@ class TrueReactAgent:
                 task_chain_manager.send_complete(final_response, menu_data)
                 self.logger.info(f"✅ [AGENT] Response formatting completed")
                 self.logger.info(f"🎉 [AGENT] Request processing completed successfully")
-                return final_response
+                
+                # 選択UI用のデータがある場合は辞書形式で返す
+                if menu_data and isinstance(menu_data, dict) and menu_data.get("requires_selection"):
+                    return {
+                        "response": final_response,
+                        "requires_selection": menu_data.get("requires_selection", False),
+                        "candidates": menu_data.get("candidates"),
+                        "task_id": menu_data.get("task_id"),
+                        "message": menu_data.get("message", "選択してください")
+                    }
+                else:
+                    return {"response": final_response}
             else:
                 error_msg = f"タスクの実行中にエラーが発生しました: {execution_result.message}"
                 self.logger.error(f"❌ [AGENT] Execution failed: {execution_result.message}")
-                return error_msg
+                return {"response": error_msg}
                 
         except Exception as e:
             self.logger.error(f"❌ [AGENT] Request processing failed: {str(e)}")
-            return f"リクエストの処理中にエラーが発生しました: {str(e)}"
+            return {"response": f"リクエストの処理中にエラーが発生しました: {str(e)}"}
     
     async def _handle_confirmation(self, execution_result: ExecutionResult, user_id: str, task_chain_manager: TaskChainManager, token: str) -> dict:
         """Handle confirmation process when ambiguity is detected."""

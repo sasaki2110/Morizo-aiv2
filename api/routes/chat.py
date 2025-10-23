@@ -105,7 +105,20 @@ async def chat(request: ChatRequest, http_request: Request):
         )
         
         # レスポンスの生成
-        if isinstance(response_data, dict) and "requires_confirmation" in response_data:
+        if isinstance(response_data, dict) and response_data.get("requires_selection"):
+            # ユーザー選択が必要な場合
+            logger.info(f"🔍 [API] Building selection response: requires_selection={response_data.get('requires_selection')}, candidates_count={len(response_data.get('candidates', []))}")
+            response = ChatResponse(
+                response=response_data.get("message", "選択してください"),
+                success=True,
+                model_used="gpt-4o-mini",
+                user_id=user_id,
+                requires_selection=response_data.get("requires_selection", False),
+                candidates=response_data.get("candidates"),
+                task_id=response_data.get("task_id")
+            )
+            logger.info(f"🔍 [API] Selection response built: requires_selection={response.requires_selection}, candidates_count={len(response.candidates or [])}")
+        elif isinstance(response_data, dict) and "requires_confirmation" in response_data:
             # 曖昧性確認が必要な場合
             logger.info(f"🔍 [API] Building confirmation response: requires_confirmation={response_data.get('requires_confirmation')}, session_id={response_data.get('confirmation_session_id')}")
             response = ChatResponse(
@@ -117,11 +130,29 @@ async def chat(request: ChatRequest, http_request: Request):
                 confirmation_session_id=response_data.get("confirmation_session_id")
             )
             logger.info(f"🔍 [API] Confirmation response built: requires_confirmation={response.requires_confirmation}, confirmation_session_id={response.confirmation_session_id}")
+        elif isinstance(response_data, dict) and "requires_selection" in response_data:
+            # ユーザー選択が必要な場合
+            logger.info(f"🔍 [API] Building selection response: requires_selection={response_data.get('requires_selection')}, candidates_count={len(response_data.get('candidates', []))}")
+            response = ChatResponse(
+                response=response_data.get("message", "選択してください"),
+                success=True,
+                model_used="gpt-4o-mini",
+                user_id=user_id,
+                requires_selection=response_data.get("requires_selection", False),
+                candidates=response_data.get("candidates"),
+                task_id=response_data.get("task_id")
+            )
+            logger.info(f"🔍 [API] Selection response built: requires_selection={response.requires_selection}, candidates_count={len(response.candidates or [])}")
         else:
             # 通常のレスポンス
             logger.info(f"🔍 [API] Building normal response")
+            if isinstance(response_data, dict):
+                response_text = response_data.get("response", str(response_data))
+            else:
+                response_text = str(response_data)
+            
             response = ChatResponse(
-                response=response_data,
+                response=response_text,
                 success=True,
                 model_used="gpt-4o-mini",
                 user_id=user_id,
@@ -258,14 +289,20 @@ def _create_sse_event(event_type: str, data: Dict[str, Any]) -> str:
 @router.post("/chat/selection")
 async def receive_user_selection(
     selection_request: UserSelectionRequest,
-    token: str = Depends(verify_token_dependency)
+    http_request: Request
 ):
     """ユーザーの選択結果を受信"""
     try:
-        # トークンからユーザー情報を取得（既に検証済み）
-        auth_handler = get_auth_handler()
-        user_info = await auth_handler.verify_token(token)
-        user_id = user_info["user_id"]
+        # ミドルウェアで認証済みのユーザー情報を取得
+        user_info = getattr(http_request.state, 'user_info', None)
+        user_id = user_info['user_id'] if user_info else "anonymous"
+        
+        # Authorizationヘッダーからトークンを取得
+        authorization = http_request.headers.get("Authorization")
+        token = authorization[7:] if authorization and authorization.startswith("Bearer ") else ""
+        
+        logger.info(f"🔍 [API] User info from middleware: {user_id}")
+        logger.info(f"🔍 [API] Token from Authorization header: {'SET' if token else 'NOT SET'}")
         
         # バリデーション（基本的な必須項目のみ）
         if not selection_request.task_id:
@@ -286,9 +323,15 @@ async def receive_user_selection(
             token
         )
         
+        # 選択処理の結果をログ出力
+        logger.info(f"📤 [API] Selection processing result: success={result.get('success')}, response_length={len(str(result.get('response', '')))}")
+        logger.info(f"📤 [API] Selection result preview: {str(result)[:200]}...")
+        
         if not result["success"]:
+            logger.error(f"❌ [API] Selection processing failed: {result.get('error')}")
             raise HTTPException(status_code=500, detail=result["error"])
         
+        logger.info(f"✅ [API] Selection processing completed successfully")
         return result
         
     except HTTPException:

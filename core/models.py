@@ -81,6 +81,7 @@ class TaskChainManager:
             },
             "RecipeService": {
                 "generate_menu_plan": "献立生成",
+                "generate_main_dish_proposals": "主菜提案",
                 "search_recipes": "レシピ検索",
                 "search_recipes_from_web": "レシピ検索",
                 "search_menu_from_rag": "献立検索",
@@ -89,6 +90,9 @@ class TaskChainManager:
             "LLMService": {
                 "process_request": "AI処理",
                 "generate_response": "レスポンス生成"
+            },
+            "HistoryService": {
+                "history_get_recent_titles": "履歴取得"
             }
         }
         
@@ -101,7 +105,8 @@ class TaskChainManager:
             "inventory_service": "InventoryService",
             "recipe_service": "RecipeService",
             "llm_service": "LLMService",
-            "session_service": "SessionService"
+            "session_service": "SessionService",
+            "history_service": "HistoryService"
         }
         return service_mapping.get(service_name, service_name)
     
@@ -195,34 +200,35 @@ class TaskChainManager:
                 if confirmation_data:
                     self.logger.info(f"🔍 [TaskChainManager] Confirmation data: {confirmation_data}")
                 
-                # イベントループの状態を確認して適切な方法で実行
-                if loop.is_running():
-                    # 既にイベントループが実行中の場合は、run_coroutine_threadsafeを使用
-                    import concurrent.futures
-                    future = asyncio.run_coroutine_threadsafe(
-                        sse_sender.send_complete(
-                            self.sse_session_id, 
-                            final_response,
-                            menu_data,
-                            confirmation_data
-                        ),
-                        loop
-                    )
-                    # タスクの完了を待機（タイムアウト付き）
-                    try:
-                        future.result(timeout=5.0)
-                        self.logger.info(f"✅ [TaskChainManager] SSE send_complete task completed (event loop running)")
-                    except concurrent.futures.TimeoutError:
-                        self.logger.warning(f"⚠️ [TaskChainManager] SSE send_complete task timeout")
-                else:
-                    # イベントループが実行されていない場合は、同期的に実行
+                # SSE送信を同期的に実行（イベントループの状態に関係なく）
+                try:
+                    # 現在のイベントループで同期的に実行
                     loop.run_until_complete(sse_sender.send_complete(
                         self.sse_session_id, 
                         final_response,
                         menu_data,
                         confirmation_data
                     ))
-                    self.logger.info(f"✅ [TaskChainManager] SSE send_complete call completed (event loop not running)")
+                    self.logger.info(f"✅ [TaskChainManager] SSE send_complete completed successfully")
+                except RuntimeError as e:
+                    if "cannot be called from a running event loop" in str(e) or "this event loop is already running" in str(e):
+                        # イベントループが実行中の場合は、タスクとしてスケジュール
+                        import asyncio
+                        try:
+                            # 現在のタスクとして実行
+                            asyncio.create_task(sse_sender.send_complete(
+                                self.sse_session_id, 
+                                final_response,
+                                menu_data,
+                                confirmation_data
+                            ))
+                            self.logger.info(f"✅ [TaskChainManager] SSE send_complete scheduled as task")
+                        except Exception as task_error:
+                            self.logger.error(f"❌ [TaskChainManager] SSE send_complete task creation failed: {task_error}")
+                    else:
+                        self.logger.error(f"❌ [TaskChainManager] SSE send_complete runtime error: {e}")
+                except Exception as e:
+                    self.logger.error(f"❌ [TaskChainManager] SSE send_complete failed: {e}")
                 
             except Exception as e:
                 # SSE送信エラーはログに記録するが、処理は継続

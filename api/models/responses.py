@@ -23,6 +23,9 @@ class ChatResponse(BaseModel):
     processing_time: Optional[float] = Field(default=None, description="処理時間（秒）")
     requires_confirmation: Optional[bool] = Field(default=False, description="曖昧性確認が必要かどうか")
     confirmation_session_id: Optional[str] = Field(default=None, description="確認セッションID")
+    requires_selection: Optional[bool] = Field(default=False, description="ユーザー選択が必要かどうか")
+    candidates: Optional[List[Dict[str, Any]]] = Field(default=None, description="選択候補リスト")
+    task_id: Optional[str] = Field(default=None, description="タスクID")
 
 
 class HealthResponse(BaseModel):

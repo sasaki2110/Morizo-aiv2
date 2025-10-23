@@ -221,7 +221,19 @@ class ResponseProcessor:
                 menu_data = self.menu_generator.generate_menu_data_json(data)
                 
             elif service_method == "recipe_service.generate_main_dish_proposals":
-                response_parts.extend(self.formatters.format_main_dish_proposals(data))
+                # 主菜提案の場合は選択UI用のデータを生成
+                if data.get("success") and data.get("data", {}).get("candidates"):
+                    candidates = data["data"]["candidates"]
+                    # 選択UI用のデータを返す
+                    return [], {
+                        "requires_selection": True,
+                        "candidates": candidates,
+                        "task_id": task_id,
+                        "message": "以下の5件から選択してください:"
+                    }
+                else:
+                    # エラー時は従来のテキスト表示
+                    response_parts.extend(self.formatters.format_main_dish_proposals(data))
                 
             else:
                 # 未知のサービス・メソッドの場合は汎用処理
