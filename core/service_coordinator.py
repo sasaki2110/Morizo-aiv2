@@ -22,33 +22,55 @@ class ServiceCoordinator:
     async def execute_service(self, service: str, method: str, parameters: Dict[str, Any], token: str) -> Any:
         """サービスメソッドの実行"""
         try:
-            # Phase 1F: 主菜提案タスク実行前に主要食材をセッションに保存
-            if service == "recipe_service" and method == "generate_main_dish_proposals":
+            # Phase 3A: 提案タスク実行前に主要食材をセッションに保存
+            if service == "recipe_service" and method == "generate_proposals":
                 sse_session_id = parameters.get("sse_session_id")
                 if sse_session_id:
                     from services.session_service import session_service
                     
                     # セッションが存在しない場合は作成
-                    session = await session_service.get_session(sse_session_id, None)
+                    user_id = parameters.get("user_id")
+                    session = await session_service.get_session(sse_session_id, user_id)
                     if not session:
-                        user_id = parameters.get("user_id")
                         if user_id:
                             # 指定IDでセッションを作成
                             session = await session_service.create_session(user_id, sse_session_id)
                             self.logger.info(f"✅ [ServiceCoordinator] Created new session with ID: {sse_session_id}")
-                    else:
-                        user_id = parameters.get("user_id")
                     
-                    main_ingredient = parameters.get("main_ingredient")
-                    menu_type = parameters.get("menu_type", "")
-                    
-                    await session_service.set_session_context(sse_session_id, "main_ingredient", main_ingredient)
-                    await session_service.set_session_context(sse_session_id, "menu_type", menu_type)
-                    self.logger.info(f"💾 [ServiceCoordinator] Saved main_ingredient='{main_ingredient}' and menu_type='{menu_type}' to session")
+                    if session:
+                        main_ingredient = parameters.get("main_ingredient")
+                        menu_type = parameters.get("menu_type", "")
+                        inventory_items = parameters.get("inventory_items")
+                        
+                        # セッションコンテキストを保存
+                        session.set_context("main_ingredient", main_ingredient)
+                        session.set_context("menu_type", menu_type)
+                        if inventory_items:
+                            session.set_context("inventory_items", inventory_items)
+                        self.logger.info(f"💾 [ServiceCoordinator] Saved main_ingredient='{main_ingredient}' and menu_type='{menu_type}' to session")
+                        
+                        # Phase 3A: セッション内の提案済みレシピを取得してexcluded_recipesに追加
+                        category = parameters.get("category", "main")
+                        proposed_titles = session.get_proposed_recipes(category)
+                        
+                        if proposed_titles:
+                            excluded_recipes = parameters.get("excluded_recipes", [])
+                            if not isinstance(excluded_recipes, list):
+                                excluded_recipes = []
+                            
+                            # 提案済みレシピを除外リストに追加（重複回避）
+                            all_excluded = excluded_recipes.copy()
+                            for title in proposed_titles:
+                                if title not in all_excluded:
+                                    all_excluded.append(title)
+                            
+                            parameters["excluded_recipes"] = all_excluded
+                            self.logger.info(f"📝 [ServiceCoordinator] Added {len(proposed_titles)} proposed {category} recipes to excluded list (total: {len(all_excluded)} recipes)")
+                        else:
+                            self.logger.info(f"📝 [ServiceCoordinator] No proposed {category} recipes found in session")
                 
-                # MCPツールに渡す前にsse_session_idを削除
-                parameters = {k: v for k, v in parameters.items() if k != "sse_session_id"}
-                self.logger.info(f"🔧 [ServiceCoordinator] Removed sse_session_id from parameters before routing")
+                # Phase 3A: sse_session_idはMCPツールに渡す必要があるため、削除しない
+                self.logger.info(f"🔧 [ServiceCoordinator] Passing sse_session_id to MCP tool for session-based exclusion")
             
             # ToolRouterのroute_service_methodを使用してサービス名・メソッド名からMCPツールをルーティング
             result = await self.tool_router.route_service_method(service, method, parameters, token)

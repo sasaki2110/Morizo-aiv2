@@ -46,8 +46,8 @@ class ToolRouter:
             ("recipe_service", "search_recipes_from_web"): "search_recipe_from_web",
             ("recipe_service", "get_recipe_history"): "get_recipe_history_for_user",
             
-            # Phase 1Aで追加された新ツールのマッピング
-            ("recipe_service", "generate_main_dish_proposals"): "generate_main_dish_proposals",
+            # Phase 3Aで追加された汎用ツールのマッピング
+            ("recipe_service", "generate_proposals"): "generate_proposals",
             
             # RecipeHistoryService のマッピング（重複回避用）
             ("history_service", "history_get_recent_titles"): "history_get_recent_titles",
@@ -359,5 +359,14 @@ class ToolRouter:
                 recipe_title = mapped.pop("recipe_title")
                 mapped["recipe_titles"] = [recipe_title] if recipe_title else []
                 self.logger.info(f"🔧 [ToolRouter] Converted recipe_title to recipe_titles: {recipe_title}")
+            elif "recipe_name" in mapped:
+                # Phase 3A: recipe_nameをrecipe_titlesに変換
+                recipe_name = mapped.pop("recipe_name")
+                if isinstance(recipe_name, list):
+                    mapped["recipe_titles"] = recipe_name
+                    self.logger.info(f"🔧 [ToolRouter] Converted recipe_name to recipe_titles: {len(recipe_name)} titles")
+                else:
+                    mapped["recipe_titles"] = [recipe_name]
+                    self.logger.info(f"🔧 [ToolRouter] Converted recipe_name to recipe_titles: 1 title")
         
         return mapped

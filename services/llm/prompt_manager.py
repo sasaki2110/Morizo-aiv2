@@ -48,7 +48,7 @@ class PromptManager:
   - `delete_inventory(item_identifier: str, strategy: str)`: 在庫を削除します。strategyには 'by_id', 'by_name', 'by_name_all', 'by_name_oldest', 'by_name_latest' が指定可能です。
 
 - **recipe_service**: レシピ・献立サービス
-  - `generate_main_dish_proposals(inventory_items: list, user_id: str, main_ingredient: str, excluded_recipes: list, ...)`: 主菜5件を提案します（LLM 2件 + RAG 3件）。main_ingredientで主要食材を指定可能。excluded_recipesで重複回避対象のレシピタイトルを指定。
+  - `generate_proposals(inventory_items: list, user_id: str, category: str, main_ingredient: str, excluded_recipes: list, ...)`: 主菜・副菜・汁物5件を提案します（LLM 2件 + RAG 3件）。categoryで"main"/"sub"/"soup"を指定。main_ingredientで主要食材を指定可能。excluded_recipesで重複回避対象のレシピタイトルを指定。
   - `generate_menu_plan(inventory_items: list, user_id: str, ...)`: 在庫リストに基づき、LLMによる独創的な献立提案を行います。過去の履歴も考慮します。
   - `search_menu_from_rag(query: str, user_id: str, ...)`: RAGを使用して過去の献立履歴から類似の献立を検索します。
   - `search_recipes_from_web(recipe_name: str, ...)`: 指定された料理名のレシピをWeb検索し、URLを含む詳細情報を返します。
@@ -90,7 +90,7 @@ class PromptManager:
 
    a. **task1**: `inventory_service.get_inventory()` を呼び出し、現在の在庫をすべて取得する。
    b. **task2**: `history_service.history_get_recent_titles(user_id, "main", 14)` を呼び出し、14日間の主菜履歴を取得する。**重要**: user_idパラメータには実際のユーザーIDを設定してください。例: "d0e0d523-1831-4541-bd67-f312386db951"
-   c. **task3**: `recipe_service.generate_main_dish_proposals()` を呼び出す。その際、ステップ1で取得した在庫情報を `inventory_items` パラメータに、ステップ2で取得した履歴タイトルを `excluded_recipes` パラメータに設定する。
+   c. **task3**: `recipe_service.generate_proposals(category="main")` を呼び出す。その際、ステップ1で取得した在庫情報を `inventory_items` パラメータに、ステップ2で取得した履歴タイトルを `excluded_recipes` パラメータに設定する。
       
       **重要**: excluded_recipesパラメータは必ず `"excluded_recipes": "task2.result.data"` と指定してください。`"task2.result"`ではありません。
    d. **task4**: `recipe_service.search_recipes_from_web()` を呼び出す。その際、ステップ3で取得したレシピタイトルを `recipe_titles` パラメータに設定する。
@@ -111,7 +111,7 @@ class PromptManager:
    a. **task1**: `history_service.history_get_recent_titles(user_id, "main", 14)` を呼び出し、14日間の主菜履歴を取得する。
    b. **task2**: `session_service.session_get_proposed_titles(sse_session_id, "main")` を呼び出し、セッション内で提案済みのタイトルを取得する。
       - **重要**: sse_session_idパラメータには、上記の「現在のSSEセッションID」の値を使用してください。決して固定値（例: "session123"）を使用しないでください。
-   c. **task3**: `recipe_service.generate_main_dish_proposals()` を呼び出す。その際:
+   c. **task3**: `recipe_service.generate_proposals(category="main")` を呼び出す。その際:
       - `inventory_items`: 文字列リテラルとして "session.context.inventory_items" と指定（システムが自動的にセッションから取得）
       - `excluded_recipes`: "task1.result.data + task2.result.data"（履歴 + セッション提案済み）
       - `main_ingredient`: 文字列リテラルとして "session.context.main_ingredient" と指定
@@ -156,14 +156,14 @@ class PromptManager:
 **パラメータ注入のルール（重複回避対応）**:
 - task1の結果をtask3で使用する場合 → `"inventory_items": "task1.result"`
 - task2の結果をtask3で使用する場合 → **必ず** `"excluded_recipes": "task2.result.data"` **を使用してください**（重要: task2.resultではなくtask2.result.dataと指定）
-- task3の結果をtask4で使用する場合 → `"recipe_titles": "task3.result.candidates"`
+- task3の結果をtask4で使用する場合 → **必ず** `"recipe_titles": "task3.result.data.candidates"` **を使用してください**（重要: recipe_nameではなくrecipe_titlesと指定）
 - 主要食材がある場合 → `"main_ingredient": "抽出された食材名"`
 - 主要食材がない場合 → `"main_ingredient": null`
 - 先行タスクの結果を後続タスクのパラメータに注入する場合は、必ず `"先行タスク名.result"` 形式を使用してください。
 - 辞書フィールド参照の場合は `"先行タスク名.result.フィールド名"` 形式を使用してください。
 - 例: task1の結果をtask2で使用する場合 → `"inventory_items": "task1.result"`
 - 例: task2の主菜をtask4で使用する場合 → `"recipe_title": "task2.result.main_dish"`
-- 例: task3の候補をtask4で使用する場合 → `"recipe_titles": "task3.result.candidates"`
+- 例: task3の候補をtask4で使用する場合 → `"recipe_titles": "task3.result.data.candidates"`（注意: recipe_nameではなくrecipe_titles）
 - この形式により、システムが自動的に先行タスクの結果を後続タスクに注入します。
 
 **在庫操作のstrategy判定について**:

@@ -347,17 +347,29 @@ async def search_recipe_from_web(
 
 
 @mcp.tool()
-async def generate_main_dish_proposals(
+async def generate_proposals(
     inventory_items: List[str],
     user_id: str,
+    category: str = "main",  # "main", "sub", "soup"
     menu_type: str = "",
-    main_ingredient: str = None,  # 主要食材
+    main_ingredient: str = None,
+    used_ingredients: List[str] = None,
     excluded_recipes: List[str] = None,
+    menu_category: str = "japanese",  # "japanese", "western", "chinese"
+    sse_session_id: str = None,
     token: str = None
 ) -> Dict[str, Any]:
-    """主菜5件提案（LLM 2件 + RAG 3件、主要食材考慮、重複回避）"""
-    logger.info(f"🔧 [RECIPE] Starting generate_main_dish_proposals")
-    logger.info(f"  User: {user_id}, Main ingredient: {main_ingredient}")
+    """
+    汎用提案メソッド（主菜・副菜・汁物対応）
+    
+    Args:
+        category: "main", "sub", "soup"
+        used_ingredients: すでに使った食材（副菜・汁物で使用）
+        menu_category: 献立カテゴリ（汁物の判断に使用）
+    """
+    logger.info(f"🔧 [RECIPE] Starting generate_proposals")
+    logger.info(f"  Category: {category}, User: {user_id}")
+    logger.info(f"  Main ingredient: {main_ingredient}, Used ingredients: {used_ingredients}")
     logger.info(f"  Excluded recipes: {len(excluded_recipes or [])} recipes")
     
     try:
@@ -365,12 +377,29 @@ async def generate_main_dish_proposals(
         client = get_authenticated_client(user_id, token)
         logger.info(f"🔐 [RECIPE] Authenticated client created for user: {user_id}")
         
-        # LLMとRAGを並列実行
-        llm_task = llm_client.generate_main_dish_candidates(
-            inventory_items, menu_type, main_ingredient, excluded_recipes, count=2
+        # Phase 3A: セッション内の提案済みレシピは、呼び出し元でexcluded_recipesとして渡されるため
+        # MCPサーバー内では追加処理は不要（プロセス分離のため）
+        all_excluded = (excluded_recipes or []).copy()
+        logger.info(f"📝 [RECIPE] Total excluded: {len(all_excluded)} recipes")
+        
+        # LLMとRAGを並列実行（汎用メソッドを使用）
+        llm_task = llm_client.generate_candidates(
+            inventory_items=inventory_items,
+            menu_type=menu_type,
+            category=category,
+            main_ingredient=main_ingredient,
+            used_ingredients=used_ingredients,
+            excluded_recipes=all_excluded,
+            count=2
         )
-        rag_task = rag_client.search_main_dish_candidates(
-            inventory_items, menu_type, main_ingredient, excluded_recipes, limit=3
+        rag_task = rag_client.search_candidates(
+            ingredients=inventory_items,
+            menu_type=menu_type,
+            category=category,
+            main_ingredient=main_ingredient,
+            used_ingredients=used_ingredients,
+            excluded_recipes=all_excluded,
+            limit=3
         )
         
         # 両方の結果を待つ（並列実行）
@@ -383,23 +412,26 @@ async def generate_main_dish_proposals(
         if rag_result:
             candidates.extend([{"title": r["title"], "ingredients": r.get("ingredients", [])} for r in rag_result])
         
-        logger.info(f"✅ [RECIPE] generate_main_dish_proposals completed: {len(candidates)} candidates")
+        logger.info(f"✅ [RECIPE] generate_proposals completed: {len(candidates)} candidates")
         
         return {
             "success": True,
             "data": {
                 "candidates": candidates,
+                "category": category,
                 "total": len(candidates),
                 "main_ingredient": main_ingredient,
-                "excluded_count": len(excluded_recipes or []),
+                "excluded_count": len(all_excluded),
                 "llm_count": len(llm_result.get("data", {}).get("candidates", [])),
                 "rag_count": len(rag_result)
             }
         }
         
     except Exception as e:
-        logger.error(f"❌ [RECIPE] Error in generate_main_dish_proposals: {e}")
+        logger.error(f"❌ [RECIPE] Error in generate_proposals: {e}")
         return {"success": False, "error": str(e)}
+
+
 
 
 if __name__ == "__main__":

@@ -81,7 +81,7 @@ class TaskChainManager:
             },
             "RecipeService": {
                 "generate_menu_plan": "献立生成",
-                "generate_main_dish_proposals": "主菜提案",
+                "generate_proposals": "レシピ提案",
                 "search_recipes": "レシピ検索",
                 "search_recipes_from_web": "レシピ検索",
                 "search_menu_from_rag": "献立検索",

@@ -55,7 +55,7 @@ class AmbiguityDetector:
                         if ambiguity_info and ambiguity_info.is_ambiguous:
                             ambiguous_tasks.append(ambiguity_info)
                     
-                    if tool_name.startswith("recipe_service_generate_main_dish_proposals"):
+                    if tool_name.startswith("recipe_service_generate_proposals"):
                         # 主菜提案の曖昧性チェック
                         ambiguity_info = await self.check_main_dish_ambiguity(task, user_id, token)
                         if ambiguity_info and ambiguity_info.is_ambiguous:
@@ -154,7 +154,7 @@ class AmbiguityDetector:
     ) -> Optional[AmbiguityInfo]:
         """主菜提案の曖昧性チェック（主要食材未指定時）"""
         
-        if task.method == "generate_main_dish_proposals":
+        if task.method == "generate_proposals" and task.parameters.get("category") == "main":
             # 主要食材が指定されていない場合
             main_ingredient = task.parameters.get("main_ingredient")
             if not main_ingredient:

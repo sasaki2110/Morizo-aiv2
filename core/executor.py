@@ -207,8 +207,8 @@ class TaskExecutor:
             self.logger.info(f"📥 [EXECUTOR] Task {task.id} input parameters: {injected_params}")
             
             # Execute service method with token
-            # Phase 1F: sse_session_idをparametersに追加（generate_main_dish_proposalsのみ）
-            if task_chain_manager and task_chain_manager.sse_session_id and task.method == "generate_main_dish_proposals":
+            # Phase 3A: sse_session_idをparametersに追加（generate_proposalsのみ）
+            if task_chain_manager and task_chain_manager.sse_session_id and task.method == "generate_proposals":
                 injected_params["sse_session_id"] = task_chain_manager.sse_session_id
             
             result = await self.service_coordinator.execute_service(
@@ -370,17 +370,17 @@ class TaskExecutor:
         return results
     
     def _extract_nested_path(self, path: str, previous_results: Dict[str, Any]) -> Any:
-        """ネストされたパスを解決（例: task2.result.data）"""
+        """ネストされたパスを解決（任意の深さに対応: task2.result.data.candidates など）"""
         parts = path.split(".")
-        if len(parts) < 3:
+        if len(parts) < 2:
             self.logger.warning(f"⚠️ [EXECUTOR] Invalid nested path format: {path}")
             return None
         
         task_id = parts[0]  # "task2"
-        nested_key = parts[2]  # "data"
+        path_after_task = parts[1:]  # ["result", "data", "candidates"]
         
         self.logger.info(f"🔍 [EXECUTOR] Extracting nested path: {path}")
-        self.logger.info(f"🔍 [EXECUTOR] task_id={task_id}, nested_key={nested_key}")
+        self.logger.info(f"🔍 [EXECUTOR] task_id={task_id}, nested_path={'.'.join(path_after_task)}")
         
         if task_id not in previous_results:
             self.logger.warning(f"⚠️ [EXECUTOR] Task '{task_id}' not found")
@@ -388,34 +388,31 @@ class TaskExecutor:
         
         task_result = previous_results[task_id]
         
-        # Phase 1F: session_get_proposed_titlesのような直接ネストにも対応
-        if isinstance(task_result, dict) and task_result.get("success"):
-            # まず直接dataフィールドを確認（session_get_proposed_titles用）
-            if nested_key == "data" and "data" in task_result:
-                value = task_result["data"]
-                self.logger.info(f"🔗 [EXECUTOR] Extracted from direct.{nested_key}: {value}")
-                return value
-            
-            # タスクのresultを取得
-            result_obj = task_result.get("result", {})
-            
-            if isinstance(result_obj, dict):
-                # 処理のresultがあればそこから取得（二重ネスト対応）
-                if "result" in result_obj and isinstance(result_obj["result"], dict):
-                    inner_result = result_obj["result"]
-                    if nested_key in inner_result:
-                        value = inner_result[nested_key]
-                        self.logger.info(f"🔗 [EXECUTOR] Extracted from result.result.{nested_key}: {value}")
-                        return value
-                
-                # 通常のネスト（後方互換性）
-                if nested_key in result_obj:
-                    value = result_obj[nested_key]
-                    self.logger.info(f"🔗 [EXECUTOR] Extracted from result.{nested_key}: {value}")
-                    return value
+        # 再帰的にパスを辿る
+        current_value = task_result
         
-        self.logger.warning(f"⚠️ [EXECUTOR] Could not extract nested path: {path}")
-        return None
+        for key in path_after_task:
+            if isinstance(current_value, dict):
+                if key in current_value:
+                    current_value = current_value[key]
+                    self.logger.info(f"🔗 [EXECUTOR] Traversing to '{key}': found {type(current_value).__name__}")
+                else:
+                    self.logger.warning(f"⚠️ [EXECUTOR] Key '{key}' not found in {list(current_value.keys())}")
+                    return None
+            else:
+                self.logger.warning(f"⚠️ [EXECUTOR] Cannot traverse '{key}' from {type(current_value).__name__}")
+                return None
+        
+        self.logger.info(f"✅ [EXECUTOR] Successfully extracted: {type(current_value).__name__}")
+        
+        # Phase 3A Fix: candidatesが辞書のリストの場合、titleのリストに変換
+        if isinstance(current_value, list) and len(current_value) > 0 and isinstance(current_value[0], dict):
+            if "title" in current_value[0]:
+                titles = [item["title"] for item in current_value if "title" in item]
+                self.logger.info(f"🔧 [EXECUTOR] Converted candidates list to title list: {len(titles)} titles")
+                return titles
+        
+        return current_value
     
     def _resolve_concatenation(self, expression: str, previous_results: Dict[str, Any]) -> Optional[list]:
         """結合演算を解決（例: "task1.result.data + task2.result.data"）"""

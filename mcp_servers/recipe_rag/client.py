@@ -229,16 +229,73 @@ class RecipeRAGClient:
         excluded_recipes: List[str] = None,
         limit: int = 3
     ) -> List[Dict[str, Any]]:
-        """主菜候補を検索（主要食材考慮）"""
+        """
+        主菜候補を検索（主要食材考慮）
+        
+        後方互換性のため、汎用メソッド `search_candidates()` を内部で呼び出します。
+        """
+        return await self.search_candidates(
+            ingredients=ingredients,
+            menu_type=menu_type,
+            category="main",
+            main_ingredient=main_ingredient,
+            used_ingredients=None,
+            excluded_recipes=excluded_recipes,
+            limit=limit
+        )
+    
+    def _extract_ingredients_from_content(self, content: str) -> List[str]:
+        """contentフィールドから食材を抽出"""
+        if not content:
+            return []
+        
+        # スペースで分割して食材リストを作成
+        ingredients = content.split()
+        
+        # 空文字列を除去
+        ingredients = [ingredient.strip() for ingredient in ingredients if ingredient.strip()]
+        
+        return ingredients
+
+    async def search_candidates(
+        self,
+        ingredients: List[str],
+        menu_type: str,
+        category: str,  # "main", "sub", "soup"
+        main_ingredient: str = None,
+        used_ingredients: List[str] = None,
+        excluded_recipes: List[str] = None,
+        limit: int = 3
+    ) -> List[Dict[str, Any]]:
+        """
+        汎用候補検索メソッド（主菜・副菜・汁物対応）
+        
+        categoryに応じて適切なベクトルストアを選択：
+        - "main" → main ベクトルストア
+        - "sub" → sub ベクトルストア
+        - "soup" → soup ベクトルストア
+        
+        Args:
+            ingredients: 在庫食材リスト
+            menu_type: 献立タイプ
+            category: "main", "sub", "soup"
+            main_ingredient: 主要食材
+            used_ingredients: すでに使った食材（除外する）
+            excluded_recipes: 除外レシピ
+            limit: 検索件数
+        
+        Returns:
+            検索結果のリスト
+        """
         try:
-            logger.info(f"🔍 [RAG] Searching {limit} main dish candidates")
-            logger.info(f"🔍 [RAG] Main ingredient: {main_ingredient}, Excluded: {len(excluded_recipes or [])} recipes")
+            logger.info(f"🔍 [RAG] Searching {limit} {category} candidates")
             
-            search_engine = self._get_search_engines()["main"]
+            # 適切なベクトルストアを選択
+            search_engine = self._get_search_engines()[category]
             
-            # 主要食材がある場合は検索クエリに追加
+            # 主要食材がある場合は検索クエリに追加（主菜の場合）
             search_query = ingredients.copy()
-            if main_ingredient:
+            if main_ingredient and category == "main":
                 search_query.insert(0, main_ingredient)  # 主要食材を優先
             
             # RAG検索（除外レシピを渡す）
@@ -254,22 +311,9 @@ class RecipeRAGClient:
                     ingredients = self._extract_ingredients_from_content(content)
                     result["ingredients"] = ingredients
             
-            logger.info(f"✅ [RAG] Found {len(results)} main dish candidates")
+            logger.info(f"✅ [RAG] Found {len(results)} {category} candidates")
             return results
             
         except Exception as e:
-            logger.error(f"❌ [RAG] Failed to search main dish candidates: {e}")
+            logger.error(f"❌ [RAG] Failed to search {category} candidates: {e}")
             return []
-    
-    def _extract_ingredients_from_content(self, content: str) -> List[str]:
-        """contentフィールドから食材を抽出"""
-        if not content:
-            return []
-        
-        # スペースで分割して食材リストを作成
-        ingredients = content.split()
-        
-        # 空文字列を除去
-        ingredients = [ingredient.strip() for ingredient in ingredients if ingredient.strip()]
-        
-        return ingredients

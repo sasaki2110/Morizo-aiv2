@@ -29,7 +29,8 @@ class DynamicTaskBuilder:
         user_id: str,
         main_ingredient: Optional[str] = None,
         menu_type: str = "",
-        excluded_recipes: Optional[List[str]] = None
+        excluded_recipes: Optional[List[str]] = None,
+        sse_session_id: Optional[str] = None
     ) -> Task:
         """主菜提案タスクを追加"""
         
@@ -40,13 +41,15 @@ class DynamicTaskBuilder:
         task = Task(
             id=f"main_dish_proposal_{len(self.task_chain_manager.tasks)}",
             service="recipe_service",
-            method="generate_main_dish_proposals",
+            method="generate_proposals",
             parameters={
                 "inventory_items": inventory_items,
                 "user_id": user_id,
                 "main_ingredient": main_ingredient,
                 "menu_type": menu_type,
-                "excluded_recipes": excluded_recipes or []
+                "category": "main",
+                "excluded_recipes": excluded_recipes or [],
+                "sse_session_id": sse_session_id
             },
             dependencies=[],
             status=TaskStatus.PENDING

@@ -19,7 +19,7 @@ load_dotenv()
 class LLMClient:
     """LLM API呼び出しクラス"""
     
-    MAX_TOKENS = 2500  # マックストークン数
+    MAX_TOKENS = 3000  # マックストークン数
     
     def __init__(self):
         """初期化"""

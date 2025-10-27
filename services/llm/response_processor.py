@@ -264,7 +264,7 @@ class ResponseProcessor:
                     response_parts.extend(self.formatters.format_web_recipes(data))
                     menu_data = self.menu_generator.generate_menu_data_json(data)
                 
-            elif service_method == "recipe_service.generate_main_dish_proposals":
+            elif service_method == "recipe_service.generate_proposals":
                 # task3完了時は進捗のみ（選択UIは表示しない）
                 # task4完了後に統合処理を行う
                 self.logger.info(f"🔍 [ResponseProcessor] Task3 completed, waiting for task4 integration")
