@@ -1,0 +1,85 @@
+# Phase 3C-2: 段階判定機能
+
+## 概要
+
+現在の段階（main/sub/soup）を判定し、次の段階を決定する機能を実装します。
+
+## 対象範囲
+
+- `core/agent.py`
+
+## 実装計画
+
+**修正する場所**: `core/agent.py`
+
+**修正する内容**:
+
+```python
+async def _get_current_stage(self, task_id: str, sse_session_id: str, user_id: str) -> str:
+    """現在の段階を取得"""
+    try:
+        session = await self.session_service.get_session(sse_session_id, user_id)
+        if not session:
+            return "main"
+        
+        return session.current_stage
+    except Exception as e:
+        self.logger.error(f"❌ [AGENT] Failed to get current stage: {e}")
+        return "main"
+
+async def _advance_stage(self, sse_session_id: str, user_id: str, selected_recipe: Dict) -> str:
+    """
+    段階を進める
+    
+    Returns:
+        次の段階の名前
+    """
+    try:
+        session = await self.session_service.get_session(sse_session_id, user_id)
+        if not session:
+            return "main"
+        
+        # 選択したレシピを保存
+        if session.current_stage == "main":
+            session.selected_main_dish = selected_recipe
+            session.current_stage = "sub"
+            # 使用済み食材を記録
+            session.used_ingredients.extend(selected_recipe.get("ingredients", []))
+            # カテゴリ判定
+            menu_type = selected_recipe.get("menu_type", "")
+            if any(x in menu_type for x in ["洋食", "western", "西洋"]):
+                session.menu_category = "western"
+            elif any(x in menu_type for x in ["中華", "chinese"]):
+                session.menu_category = "chinese"
+            else:
+                session.menu_category = "japanese"
+        
+        elif session.current_stage == "sub":
+            session.selected_sub_dish = selected_recipe
+            session.current_stage = "soup"
+            # 使用済み食材を記録
+            session.used_ingredients.extend(selected_recipe.get("ingredients", []))
+        
+        elif session.current_stage == "soup":
+            session.selected_soup = selected_recipe
+            session.current_stage = "completed"
+        
+        return session.current_stage
+        
+    except Exception as e:
+        self.logger.error(f"❌ [AGENT] Failed to advance stage: {e}")
+        return "main"
+```
+
+**修正の理由**: 段階判定が必要
+
+**修正の影響**: 既存のエージェント処理に新規メソッドを追加
+
+---
+
+## 期待される効果
+
+- 現在の段階を判定できる
+- 次の段階に自動的に進める
+- 選択したレシピをセッションに保存
+
