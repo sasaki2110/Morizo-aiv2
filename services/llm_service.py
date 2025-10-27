@@ -29,7 +29,8 @@ class LLMService:
         self, 
         user_request: str, 
         available_tools: List[str], 
-        user_id: str
+        user_id: str,
+        sse_session_id: str = None
     ) -> List[Dict[str, Any]]:
         """
         実際のLLM呼び出しによるタスク分解
@@ -46,8 +47,8 @@ class LLMService:
             self.logger.info(f"🔧 [LLMService] Decomposing tasks for user: {user_id}")
             self.logger.info(f"📝 [LLMService] User request: '{user_request}'")
             
-            # 1. プロンプト構築
-            prompt = self.prompt_manager.build_planning_prompt(user_request)
+            # 1. プロンプト構築（Phase 1F: sse_session_idを渡す）
+            prompt = self.prompt_manager.build_planning_prompt(user_request, sse_session_id)
             
             # 2. OpenAI API呼び出し
             response = await self.llm_client.call_openai_api(prompt)
@@ -76,18 +77,20 @@ class LLMService:
     
     async def format_response(
         self, 
-        results: Dict[str, Any]
+        results: Dict[str, Any],
+        sse_session_id: str = None
     ) -> tuple[str, Optional[Dict[str, Any]]]:
         """
         最終回答整形
         
         Args:
             results: タスク実行結果辞書 (task1, task2, task3, task4)
+            sse_session_id: SSEセッションID
         
         Returns:
             (整形された回答, JSON形式のレシピデータ)
         """
-        response, menu_data = self.response_processor.format_final_response(results)
+        response, menu_data = await self.response_processor.format_final_response(results, sse_session_id)
         self.logger.info(f"🔍 [LLMService] Menu data received: {menu_data is not None}")
         if menu_data:
             self.logger.info(f"📊 [LLMService] Menu data size: {len(str(menu_data))} characters")

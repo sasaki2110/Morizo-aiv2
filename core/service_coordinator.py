@@ -22,6 +22,34 @@ class ServiceCoordinator:
     async def execute_service(self, service: str, method: str, parameters: Dict[str, Any], token: str) -> Any:
         """サービスメソッドの実行"""
         try:
+            # Phase 1F: 主菜提案タスク実行前に主要食材をセッションに保存
+            if service == "recipe_service" and method == "generate_main_dish_proposals":
+                sse_session_id = parameters.get("sse_session_id")
+                if sse_session_id:
+                    from services.session_service import session_service
+                    
+                    # セッションが存在しない場合は作成
+                    session = await session_service.get_session(sse_session_id, None)
+                    if not session:
+                        user_id = parameters.get("user_id")
+                        if user_id:
+                            # 指定IDでセッションを作成
+                            session = await session_service.create_session(user_id, sse_session_id)
+                            self.logger.info(f"✅ [ServiceCoordinator] Created new session with ID: {sse_session_id}")
+                    else:
+                        user_id = parameters.get("user_id")
+                    
+                    main_ingredient = parameters.get("main_ingredient")
+                    menu_type = parameters.get("menu_type", "")
+                    
+                    await session_service.set_session_context(sse_session_id, "main_ingredient", main_ingredient)
+                    await session_service.set_session_context(sse_session_id, "menu_type", menu_type)
+                    self.logger.info(f"💾 [ServiceCoordinator] Saved main_ingredient='{main_ingredient}' and menu_type='{menu_type}' to session")
+                
+                # MCPツールに渡す前にsse_session_idを削除
+                parameters = {k: v for k, v in parameters.items() if k != "sse_session_id"}
+                self.logger.info(f"🔧 [ServiceCoordinator] Removed sse_session_id from parameters before routing")
+            
             # ToolRouterのroute_service_methodを使用してサービス名・メソッド名からMCPツールをルーティング
             result = await self.tool_router.route_service_method(service, method, parameters, token)
             

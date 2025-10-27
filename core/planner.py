@@ -87,13 +87,14 @@ class ActionPlanner:
             }
         }
     
-    async def plan(self, user_request: str, user_id: str) -> List[Task]:
+    async def plan(self, user_request: str, user_id: str, sse_session_id: str = None) -> List[Task]:
         """
         Plan tasks based on user request.
         
         Args:
             user_request: User's natural language request
             user_id: User identifier
+            sse_session_id: SSE session ID (for additional proposal context)
             
         Returns:
             List of tasks with dependencies resolved
@@ -107,8 +108,9 @@ class ActionPlanner:
             self.logger.info(f"🔧 [PLANNER] Retrieved {len(tools_description)} available tools")
             
             # Use LLM to decompose the request into tasks
+            # Phase 1F: sse_session_idを渡す（追加提案の場合）
             task_descriptions = await self.llm_service.decompose_tasks(
-                user_request, tools_description, user_id
+                user_request, tools_description, user_id, sse_session_id
             )
             self.logger.info(f"🤖 [PLANNER] LLM generated {len(task_descriptions)} task descriptions")
             

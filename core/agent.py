@@ -24,11 +24,11 @@ class ResponseFormatter:
         self.logger = GenericLogger("core", "response_formatter")
         self.llm_service = LLMService()
     
-    async def format(self, execution_results: dict) -> tuple[str, Optional[Dict[str, Any]]]:
+    async def format(self, execution_results: dict, sse_session_id: str = None) -> tuple[str, Optional[Dict[str, Any]]]:
         """Format execution results into natural language response."""
         try:
             # Use LLM service to format the response
-            response, menu_data = await self.llm_service.format_response(execution_results)
+            response, menu_data = await self.llm_service.format_response(execution_results, sse_session_id)
             self.logger.info(f"🔍 [ResponseFormatter] Menu data received: {menu_data is not None}")
             if menu_data:
                 self.logger.info(f"📊 [ResponseFormatter] Menu data size: {len(str(menu_data))} characters")
@@ -97,7 +97,20 @@ class TrueReactAgent:
             
             # Step 1: Planning - Generate task list
             self.logger.info(f"📋 [AGENT] Starting planning phase...")
-            tasks = await self.action_planner.plan(user_request, user_id)
+            tasks = await self.action_planner.plan(user_request, user_id, sse_session_id)
+            
+            # Phase 1F: セッションコンテキスト注入（追加提案の場合）
+            if sse_session_id and any(t.parameters.get("inventory_items", "").startswith("session.context.") for t in tasks):
+                self.logger.info(f"🔄 [AGENT] Detected session context references, injecting values")
+                for task in tasks:
+                    for key, value in task.parameters.items():
+                        if isinstance(value, str) and value.startswith("session.context."):
+                            context_key = value.replace("session.context.", "")
+                            context_value = await self.session_service.get_session_context(
+                                sse_session_id, context_key, None
+                            )
+                            task.parameters[key] = context_value
+                            self.logger.info(f"💾 [AGENT] Injected session context: {context_key} = {context_value}")
             task_chain_manager.set_tasks(tasks)
             self.logger.info(f"✅ [AGENT] Planning phase completed: {len(tasks)} tasks generated")
             
@@ -133,7 +146,7 @@ class TrueReactAgent:
             # Step 4: Format final response
             if execution_result.status == "success":
                 self.logger.info(f"📄 [AGENT] Starting response formatting...")
-                final_response, menu_data = await self.response_formatter.format(execution_result.outputs)
+                final_response, menu_data = await self.response_formatter.format(execution_result.outputs, sse_session_id)
                 self.logger.info(f"🔍 [TrueReactAgent] Menu data received: {menu_data is not None}")
                 if menu_data:
                     self.logger.info(f"📊 [TrueReactAgent] Menu data size: {len(str(menu_data))} characters")
@@ -187,14 +200,9 @@ class TrueReactAgent:
             if task_chain_manager.sse_session_id:
                 session = await self.session_service.get_session(task_chain_manager.sse_session_id, user_id)
                 if not session:
-                    # セッションが存在しない場合は作成
-                    session = await self.session_service.create_session(user_id)
-                    # 新しく作成したセッションをtask_chain_managerのセッションIDで保存
-                    if user_id not in self.session_service.user_sessions:
-                        self.session_service.user_sessions[user_id] = {}
-                    self.session_service.user_sessions[user_id][task_chain_manager.sse_session_id] = session
-                    # セッションIDを更新
-                    session.id = task_chain_manager.sse_session_id
+                    # 指定IDでセッションを作成
+                    session = await self.session_service.create_session(user_id, task_chain_manager.sse_session_id)
+                    self.logger.info(f"✅ [AGENT] Created new session with ID: {task_chain_manager.sse_session_id}")
                 
                 confirmation_message = execution_result.message if hasattr(execution_result, 'message') else ""
                 session.set_ambiguity_confirmation(
@@ -334,7 +342,7 @@ class TrueReactAgent:
             
             # 最終レスポンス生成
             if final_execution_result.status == "success":
-                final_response, menu_data = await self.response_formatter.format(final_execution_result.outputs)
+                final_response, menu_data = await self.response_formatter.format(final_execution_result.outputs, sse_session_id)
                 task_chain_manager.send_complete(final_response, menu_data)
                 return final_response
             else:
@@ -449,10 +457,17 @@ class TrueReactAgent:
                 "requires_selection": False
             }
     
-    async def process_user_selection(self, task_id: str, selection: int, sse_session_id: str, user_id: str, token: str) -> dict:
+    async def process_user_selection(self, task_id: str, selection: int, sse_session_id: str, user_id: str, token: str, old_sse_session_id: str = None) -> dict:
         """ユーザー選択結果の処理"""
         try:
             self.logger.info(f"📥 [AGENT] Processing user selection: task_id={task_id}, selection={selection}")
+            
+            # Phase 1F: selection=0 の場合は追加提案要求
+            if selection == 0:
+                self.logger.info(f"🔄 [AGENT] Additional proposal request detected (selection=0)")
+                return await self._handle_additional_proposal_request(
+                    task_id, sse_session_id, user_id, token, old_sse_session_id
+                )
             
             # タスクチェーンマネージャーを初期化（SSEセッションIDから復元）
             task_chain_manager = TaskChainManager(sse_session_id)
@@ -474,6 +489,111 @@ class TrueReactAgent:
             
         except Exception as e:
             self.logger.error(f"❌ [AGENT] Failed to process user selection: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def _handle_additional_proposal_request(
+        self, 
+        task_id: str,
+        sse_session_id: str, 
+        user_id: str, 
+        token: str,
+        old_sse_session_id: str = None
+    ) -> dict:
+        """追加提案要求の処理（selection=0の場合）
+        
+        Args:
+            task_id: タスクID
+            sse_session_id: 新しいSSEセッションID
+            user_id: ユーザーID
+            token: 認証トークン
+            old_sse_session_id: 旧SSEセッションID（コンテキスト復元用）
+        
+        Returns:
+            dict: 処理結果
+        """
+        try:
+            self.logger.info(f"🔄 [AGENT] Handling additional proposal request")
+            self.logger.info(f"🔍 [AGENT] New SSE session ID: {sse_session_id}")
+            self.logger.info(f"🔍 [AGENT] Old SSE session ID: {old_sse_session_id}")
+            
+            # 旧セッションから主要食材を取得（コンテキスト復元）
+            main_ingredient = None
+            if old_sse_session_id:
+                old_session = await self.session_service.get_session(old_sse_session_id, user_id)
+                if old_session:
+                    main_ingredient = old_session.get_context("main_ingredient")
+                    inventory_items = old_session.get_context("inventory_items")
+                    menu_type = old_session.get_context("menu_type")
+                    
+                    # 旧セッションから提案済みタイトルを取得
+                    proposed_titles = old_session.get_proposed_recipes("main")
+                    self.logger.info(f"🔍 [AGENT] Retrieved from old session: main_ingredient={main_ingredient}, proposed_titles count={len(proposed_titles)}")
+                    
+                    # 新しいセッションにコンテキストをコピー
+                    new_session = await self.session_service.get_session(sse_session_id, user_id)
+                    if not new_session:
+                        new_session = await self.session_service.create_session(user_id, sse_session_id)
+                    
+                    new_session.set_context("main_ingredient", main_ingredient)
+                    new_session.set_context("inventory_items", inventory_items)
+                    new_session.set_context("menu_type", menu_type)
+                    
+                    # 提案済みタイトルも新しいセッションにコピー
+                    if proposed_titles:
+                        new_session.add_proposed_recipes("main", proposed_titles)
+                        self.logger.info(f"✅ [AGENT] Copied {len(proposed_titles)} proposed titles to new session")
+                    
+                    self.logger.info(f"✅ [AGENT] Copied context from old session to new session")
+            
+            # 主要食材が取得できたか確認
+            if not main_ingredient:
+                # 新しいセッションから取得を試みる
+                session = await self.session_service.get_session(sse_session_id, user_id)
+                if session:
+                    main_ingredient = session.get_context("main_ingredient")
+                
+                if not main_ingredient:
+                    self.logger.warning(f"⚠️ [AGENT] main_ingredient not found, using default request")
+                    additional_request = "主菜をもう5件提案して"
+                else:
+                    additional_request = f"{main_ingredient}の主菜をもう5件提案して"
+            else:
+                additional_request = f"{main_ingredient}の主菜をもう5件提案して"
+            
+            self.logger.info(f"📝 [AGENT] Final additional request: {additional_request}")
+            
+            # プランニングループを実行
+            # 重要: 追加提案の場合は、新しいSSEセッションID（additional-*で始まる）を使用
+            # これにより、新しいSSE接続が確立され、通常のタスク進捗（進捗バー等）がフロントエンドに表示される
+            self.logger.info(f"🔄 [AGENT] Processing additional proposal with SSE session: {sse_session_id}")
+            
+            result = await self.process_request(
+                additional_request, 
+                user_id, 
+                token, 
+                sse_session_id,  # 新しいSSEセッションID（フロントエンドから渡される）
+                is_confirmation_response=False
+            )
+            
+            # Phase 1F: 追加提案の場合、SSE経由でメッセージが送信されるため、
+            # ここで返す値はフロントエンドに表示されない（既にSSE経由で送信済み）
+            # しかし、APIの返却値を調整
+            if isinstance(result, dict):
+                # SSE経由で送信済みのメッセージは不要なため空の辞書を返す
+                result["success"] = True
+                return result
+            else:
+                # 辞書以外の場合は辞書形式に変換
+                return {
+                    "success": True,
+                    "response": str(result)
+                }
+            
+        except Exception as e:
+            self.logger.error(f"❌ [AGENT] Failed to handle additional proposal request: {e}")
             return {
                 "success": False,
                 "error": str(e)

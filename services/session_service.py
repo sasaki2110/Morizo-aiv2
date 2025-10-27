@@ -28,6 +28,23 @@ class Session:
             "detected_ambiguity": None,  # 検出された曖昧性の詳細
             "timestamp": None
         }
+        
+        # Phase 1F: 提案履歴管理
+        self.proposed_recipes: Dict[str, list] = {
+            "main": [],
+            "sub": [],
+            "soup": []
+        }
+        
+        # Phase 1F: セッション内コンテキスト（在庫情報等）
+        self.context: Dict[str, Any] = {
+            "inventory_items": [],
+            "main_ingredient": None,
+            "menu_type": ""
+        }
+        
+        # ロガー設定
+        self.logger = GenericLogger("service", "session")
     
     def is_waiting_for_confirmation(self) -> bool:
         """確認待ち状態かどうか"""
@@ -61,6 +78,60 @@ class Session:
     def get_confirmation_type(self) -> Optional[str]:
         """確認タイプを取得"""
         return self.confirmation_context.get("type")
+    
+    def add_proposed_recipes(self, category: str, titles: list) -> None:
+        """提案済みレシピタイトルを追加
+        
+        Args:
+            category: カテゴリ（"main", "sub", "soup"）
+            titles: 提案済みタイトルのリスト
+        """
+        if category in self.proposed_recipes:
+            self.proposed_recipes[category].extend(titles)
+            self.logger.info(f"📝 [SESSION] Added {len(titles)} proposed {category} recipes")
+    
+    def get_proposed_recipes(self, category: str) -> list:
+        """提案済みレシピタイトルを取得
+        
+        Args:
+            category: カテゴリ（"main", "sub", "soup"）
+        
+        Returns:
+            list: 提案済みタイトルのリスト
+        """
+        return self.proposed_recipes.get(category, [])
+    
+    def clear_proposed_recipes(self, category: str) -> None:
+        """提案済みレシピをクリア
+        
+        Args:
+            category: カテゴリ（"main", "sub", "soup"）
+        """
+        if category in self.proposed_recipes:
+            self.proposed_recipes[category] = []
+            self.logger.info(f"🧹 [SESSION] Cleared proposed {category} recipes")
+    
+    def set_context(self, key: str, value: Any) -> None:
+        """セッションコンテキストを設定
+        
+        Args:
+            key: コンテキストキー（"inventory_items", "main_ingredient", "menu_type"等）
+            value: 値
+        """
+        self.context[key] = value
+        self.logger.info(f"💾 [SESSION] Context set: {key}")
+    
+    def get_context(self, key: str, default: Any = None) -> Any:
+        """セッションコンテキストを取得
+        
+        Args:
+            key: コンテキストキー
+            default: デフォルト値
+        
+        Returns:
+            Any: コンテキスト値
+        """
+        return self.context.get(key, default)
 
 
 class SessionService:
@@ -83,13 +154,15 @@ class SessionService:
     
     async def create_session(
         self, 
-        user_id: str
+        user_id: str,
+        session_id: Optional[str] = None
     ) -> Session:
         """
         セッションを作成（認証はAPI層で完了済み）
         
         Args:
             user_id: ユーザーID
+            session_id: 指定するセッションID（Noneの場合は自動生成）
         
         Returns:
             作成されたセッション
@@ -97,8 +170,9 @@ class SessionService:
         try:
             self.logger.info(f"🔧 [SessionService] Creating session for user: {user_id}")
             
-            # セッションIDを生成
-            session_id = str(uuid.uuid4())
+            # セッションIDを生成または指定されたIDを使用
+            if session_id is None:
+                session_id = str(uuid.uuid4())
             
             # セッションを作成（user_idがNoneの場合は"system"を使用）
             actual_user_id = user_id if user_id else "system"
@@ -384,3 +458,101 @@ class SessionService:
             
         except Exception as e:
             self.logger.error(f"❌ [SessionService] Error in clear_confirmation_state: {e}")
+    
+    async def add_proposed_recipes(
+        self, 
+        sse_session_id: str, 
+        category: str, 
+        titles: list
+    ) -> None:
+        """提案済みレシピをセッションに追加
+        
+        Args:
+            sse_session_id: SSEセッションID
+            category: カテゴリ（"main", "sub", "soup"）
+            titles: 提案済みタイトルのリスト
+        """
+        try:
+            session = await self.get_session(sse_session_id, user_id=None)
+            if session:
+                session.add_proposed_recipes(category, titles)
+                self.logger.info(f"✅ [SessionService] Added {len(titles)} proposed {category} recipes to session")
+        except Exception as e:
+            self.logger.error(f"❌ [SessionService] Error in add_proposed_recipes: {e}")
+    
+    async def get_proposed_recipes(
+        self, 
+        sse_session_id: str, 
+        category: str
+    ) -> list:
+        """提案済みレシピをセッションから取得
+        
+        Args:
+            sse_session_id: SSEセッションID
+            category: カテゴリ（"main", "sub", "soup"）
+        
+        Returns:
+            list: 提案済みタイトルのリスト
+        """
+        try:
+            session = await self.get_session(sse_session_id, user_id=None)
+            if session:
+                titles = session.get_proposed_recipes(category)
+                self.logger.info(f"✅ [SessionService] Retrieved {len(titles)} proposed {category} recipes from session")
+                return titles
+            return []
+        except Exception as e:
+            self.logger.error(f"❌ [SessionService] Error in get_proposed_recipes: {e}")
+            return []
+    
+    async def set_session_context(
+        self, 
+        sse_session_id: str, 
+        key: str, 
+        value: Any
+    ) -> None:
+        """セッションコンテキストを設定
+        
+        Args:
+            sse_session_id: SSEセッションID
+            key: コンテキストキー
+            value: 値
+        """
+        try:
+            session = await self.get_session(sse_session_id, user_id=None)
+            if session:
+                session.set_context(key, value)
+                self.logger.info(f"✅ [SessionService] Set session context: {key}")
+        except Exception as e:
+            self.logger.error(f"❌ [SessionService] Error in set_session_context: {e}")
+    
+    async def get_session_context(
+        self, 
+        sse_session_id: str, 
+        key: str, 
+        default: Any = None
+    ) -> Any:
+        """セッションコンテキストを取得
+        
+        Args:
+            sse_session_id: SSEセッションID
+            key: コンテキストキー
+            default: デフォルト値
+        
+        Returns:
+            Any: コンテキスト値
+        """
+        try:
+            session = await self.get_session(sse_session_id, user_id=None)
+            if session:
+                value = session.get_context(key, default)
+                self.logger.info(f"✅ [SessionService] Retrieved session context: {key}")
+                return value
+            return default
+        except Exception as e:
+            self.logger.error(f"❌ [SessionService] Error in get_session_context: {e}")
+            return default
+
+
+# シングルトンインスタンスを作成
+session_service = SessionService()

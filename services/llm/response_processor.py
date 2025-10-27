@@ -100,12 +100,13 @@ class ResponseProcessor:
             self.logger.error(f"❌ [ResponseProcessor] Error converting tasks: {e}")
             return []
     
-    def format_final_response(self, results: Dict[str, Any]) -> tuple[str, Optional[Dict[str, Any]]]:
+    async def format_final_response(self, results: Dict[str, Any], sse_session_id: str = None) -> tuple[str, Optional[Dict[str, Any]]]:
         """
         最終回答整形（サービス・メソッドベース）
         
         Args:
             results: タスク実行結果辞書
+            sse_session_id: SSEセッションID
         
         Returns:
             (整形された回答, JSON形式のレシピデータ)
@@ -115,7 +116,7 @@ class ResponseProcessor:
             is_menu_scenario = self.utils.is_menu_scenario(results)
             
             # レスポンス構築
-            response_parts, menu_data = self._build_response_parts(results, is_menu_scenario)
+            response_parts, menu_data = await self._build_response_parts(results, is_menu_scenario, sse_session_id)
             
             # 空レスポンスの処理
             return self._handle_empty_response(response_parts, menu_data)
@@ -124,7 +125,7 @@ class ResponseProcessor:
             self.logger.error(f"❌ [ResponseProcessor] Error in format_final_response: {e}")
             return "タスクが完了しましたが、レスポンスの生成に失敗しました。", None
     
-    def _build_response_parts(self, results: Dict[str, Any], is_menu_scenario: bool) -> tuple[List[str], Optional[Dict[str, Any]]]:
+    async def _build_response_parts(self, results: Dict[str, Any], is_menu_scenario: bool, sse_session_id: str = None) -> tuple[List[str], Optional[Dict[str, Any]]]:
         """
         レスポンスパーツを構築
         
@@ -160,7 +161,7 @@ class ResponseProcessor:
                 self.logger.info(f"🔍 [DEBUG] data: {data}")
                 
                 # サービス・メソッド別の処理
-                parts, menu = self._process_service_method(service_method, data, is_menu_scenario, task_id, results)
+                parts, menu = await self._process_service_method(service_method, data, is_menu_scenario, task_id, results, sse_session_id)
                 response_parts.extend(parts)
                 
                 # メニューデータの更新（最初に見つかったものを使用）
@@ -173,7 +174,7 @@ class ResponseProcessor:
         
         return response_parts, menu_data
     
-    def _process_service_method(self, service_method: str, data: Any, is_menu_scenario: bool, task_id: str, results: Dict[str, Any] = None) -> tuple[List[str], Optional[Dict[str, Any]]]:
+    async def _process_service_method(self, service_method: str, data: Any, is_menu_scenario: bool, task_id: str, results: Dict[str, Any] = None, sse_session_id: str = None) -> tuple[List[str], Optional[Dict[str, Any]]]:
         """
         サービス・メソッド別の処理
         
@@ -193,6 +194,15 @@ class ResponseProcessor:
         try:
             if service_method == "inventory_service.get_inventory":
                 response_parts.extend(self.formatters.format_inventory_list(data, is_menu_scenario))
+                
+                # Phase 1F: 在庫情報をセッションに保存（追加提案時の再利用用）
+                if data.get("success") and sse_session_id:
+                    from services.session_service import session_service
+                    inventory_items = data.get("data", [])
+                    item_names = [item.get("name") for item in inventory_items if item.get("name")]
+                    
+                    await session_service.set_session_context(sse_session_id, "inventory_items", item_names)
+                    self.logger.info(f"💾 [RESPONSE] Saved {len(item_names)} inventory items to session")
                 
             elif service_method == "inventory_service.add_inventory":
                 # デバッグログ: サービスメソッドとデータを確認
@@ -234,6 +244,14 @@ class ResponseProcessor:
                     # task4のWeb検索結果を統合
                     candidates_with_urls = self._integrate_web_search_results(candidates, task_id, data)
                     
+                    # Phase 1F: 提案済みタイトルをセッションに保存
+                    if sse_session_id:
+                        from services.session_service import session_service
+                        titles = [c.get("title") for c in candidates_with_urls if c.get("title")]
+                        
+                        await session_service.add_proposed_recipes(sse_session_id, "main", titles)
+                        self.logger.info(f"💾 [RESPONSE] Saved {len(titles)} proposed titles to session")
+                    
                     # 選択UI用のデータを返す
                     return [], {
                         "requires_selection": True,
@@ -250,7 +268,18 @@ class ResponseProcessor:
                 # task3完了時は進捗のみ（選択UIは表示しない）
                 # task4完了後に統合処理を行う
                 self.logger.info(f"🔍 [ResponseProcessor] Task3 completed, waiting for task4 integration")
-                pass  # 何も返さない（進捗状態のみ）
+                
+                # Phase 1F: 提案済みタイトルをセッションに保存
+                if data.get("success") and sse_session_id:
+                    from services.session_service import session_service
+                    candidates = data.get("data", {}).get("candidates", [])
+                    titles = [c.get("title") for c in candidates if c.get("title")]
+                    
+                    await session_service.add_proposed_recipes(sse_session_id, "main", titles)
+                    self.logger.info(f"💾 [RESPONSE] Saved {len(titles)} proposed titles to session")
+                
+                # 何も返さない（進捗状態のみ）
+                pass
                 
             else:
                 # 未知のサービス・メソッドの場合は汎用処理

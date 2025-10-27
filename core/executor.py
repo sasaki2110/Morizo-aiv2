@@ -6,7 +6,7 @@ This component manages task execution, dependency resolution, and parallel proce
 
 import asyncio
 import logging
-from typing import List, Dict, Any, Set
+from typing import List, Dict, Any, Set, Optional
 from .models import Task, TaskStatus, TaskChainManager, ExecutionResult
 from .exceptions import TaskExecutionError, CircularDependencyError, AmbiguityDetected
 from .service_coordinator import ServiceCoordinator
@@ -195,9 +195,22 @@ class TaskExecutor:
             
             # Inject data from previous tasks
             injected_params = self._inject_data(task.parameters, previous_results)
+            
+            # Phase 1F: session_get_proposed_titlesのsse_session_idを実際のセッションIDで置き換え
+            if task.method == "session_get_proposed_titles" and task_chain_manager and task_chain_manager.sse_session_id:
+                # プランナーが生成した固定値（例: "session123"）を実際のsse_session_idで置き換え
+                if "sse_session_id" in injected_params:
+                    old_value = injected_params["sse_session_id"]
+                    injected_params["sse_session_id"] = task_chain_manager.sse_session_id
+                    self.logger.info(f"🔄 [EXECUTOR] Replaced sse_session_id: '{old_value}' → '{task_chain_manager.sse_session_id}'")
+            
             self.logger.info(f"📥 [EXECUTOR] Task {task.id} input parameters: {injected_params}")
             
             # Execute service method with token
+            # Phase 1F: sse_session_idをparametersに追加（generate_main_dish_proposalsのみ）
+            if task_chain_manager and task_chain_manager.sse_session_id and task.method == "generate_main_dish_proposals":
+                injected_params["sse_session_id"] = task_chain_manager.sse_session_id
+            
             result = await self.service_coordinator.execute_service(
                 task.service, task.method, injected_params, token
             )
@@ -218,9 +231,24 @@ class TaskExecutor:
         for key, value in parameters.items():
             self.logger.info(f"🔍 [EXECUTOR] Processing parameter: key={key}, value={value}, type={type(value)}")
             
+            # Phase 1F: セッションコンテキスト参照の処理（"session.context.xxx"形式）
+            if isinstance(value, str) and value.startswith("session.context."):
+                self.logger.info(f"🔍 [EXECUTOR] Detected session context reference: {value}")
+                # この時点では文字列のまま保持（エージェントで実際にセッションから取得する）
+                # injected[key] = value  # 既にvalueが設定されているため変更不要
+                continue
+            
             if isinstance(value, str):
+                # 結合演算: "task1.result.data + task2.result.data"
+                if " + " in value and ".result." in value:
+                    self.logger.info(f"🔍 [EXECUTOR] Match: concatenation operation ({value})")
+                    resolved_value = self._resolve_concatenation(value, previous_results)
+                    if resolved_value is not None:
+                        injected[key] = resolved_value
+                        self.logger.info(f"🔗 [EXECUTOR] Resolved concatenation '{value}' = {len(resolved_value)} items")
+                
                 # 辞書フィールド参照: "task2.result.main_dish"
-                if ".result." in value and value.endswith((".main_dish", ".side_dish", ".soup")):
+                elif ".result." in value and value.endswith((".main_dish", ".side_dish", ".soup")):
                     self.logger.info(f"🔍 [EXECUTOR] Match: dict field reference ({value})")
                     field_value = self._extract_field_from_result(value, previous_results)
                     injected[key] = field_value
@@ -360,8 +388,14 @@ class TaskExecutor:
         
         task_result = previous_results[task_id]
         
-        # 254行目と同じロジック: result.result.data を取得
+        # Phase 1F: session_get_proposed_titlesのような直接ネストにも対応
         if isinstance(task_result, dict) and task_result.get("success"):
+            # まず直接dataフィールドを確認（session_get_proposed_titles用）
+            if nested_key == "data" and "data" in task_result:
+                value = task_result["data"]
+                self.logger.info(f"🔗 [EXECUTOR] Extracted from direct.{nested_key}: {value}")
+                return value
+            
             # タスクのresultを取得
             result_obj = task_result.get("result", {})
             
@@ -382,3 +416,32 @@ class TaskExecutor:
         
         self.logger.warning(f"⚠️ [EXECUTOR] Could not extract nested path: {path}")
         return None
+    
+    def _resolve_concatenation(self, expression: str, previous_results: Dict[str, Any]) -> Optional[list]:
+        """結合演算を解決（例: "task1.result.data + task2.result.data"）"""
+        try:
+            parts = expression.split(" + ")
+            result_list = []
+            
+            for part in parts:
+                part = part.strip()
+                # ネストパス参照として解決
+                resolved_value = self._extract_nested_path(part, previous_results)
+                
+                if resolved_value is not None:
+                    # リストの場合は拡張、それ以外は追加
+                    if isinstance(resolved_value, list):
+                        result_list.extend(resolved_value)
+                        self.logger.info(f"🔗 [EXECUTOR] Extended {len(resolved_value)} items from {part}")
+                    else:
+                        result_list.append(resolved_value)
+                        self.logger.info(f"🔗 [EXECUTOR] Added item from {part}")
+                else:
+                    self.logger.warning(f"⚠️ [EXECUTOR] Could not resolve part: {part}")
+            
+            self.logger.info(f"✅ [EXECUTOR] Concatenation result: {len(result_list)} items")
+            return result_list
+            
+        except Exception as e:
+            self.logger.error(f"❌ [EXECUTOR] Error in _resolve_concatenation: {e}")
+            return None

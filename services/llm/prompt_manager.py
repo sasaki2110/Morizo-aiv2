@@ -17,20 +17,27 @@ class PromptManager:
         """初期化"""
         self.logger = GenericLogger("service", "llm.prompt")
     
-    def build_planning_prompt(self, user_request: str) -> str:
+    def build_planning_prompt(self, user_request: str, sse_session_id: str = None) -> str:
         """
         タスク分解用のプロンプトを構築（サービスメソッド名対応版）
         
         Args:
             user_request: ユーザーリクエスト
+            sse_session_id: SSE session ID (for additional proposal context)
         
         Returns:
             構築されたプロンプト
         """
+        # Phase 1F: 追加提案の場合、sse_session_idをプロンプトに含める
+        sse_info = ""
+        if sse_session_id:
+            sse_info = f"\n**現在のSSEセッションID**: {sse_session_id}"
+        
         planning_prompt = f"""
 ユーザー要求を分析し、適切なサービスクラスのメソッド呼び出しに分解してください。
 
 ユーザー要求: "{user_request}"
+{sse_info}
 
 利用可能なサービスと機能:
 
@@ -50,7 +57,8 @@ class PromptManager:
 - **history_service**: レシピ履歴サービス
   - `history_get_recent_titles(user_id: str, category: str, days: int, ...)`: 指定期間内のレシピタイトルを取得（重複回避用）。categoryは"main"/"sub"/"soup"、daysは日数。
 
-- **session_service**: セッション管理サービス（通常は直接呼び出し不要）
+- **session_service**: セッション管理サービス
+  - `session_get_proposed_titles(sse_session_id: str, category: str, ...)`: セッション内で提案済みのレシピタイトルを取得（追加提案の重複回避用）。categoryは"main"/"sub"/"soup"。
 
 **最重要ルール: タスク生成の条件分岐**
 
@@ -88,6 +96,38 @@ class PromptManager:
    d. **task4**: `recipe_service.search_recipes_from_web()` を呼び出す。その際、ステップ3で取得したレシピタイトルを `recipe_titles` パラメータに設定する。
 
 **並列実行の指示**: task2とtask3は並列で実行可能です。dependenciesにtask1のみを指定してください。
+
+4. **主菜追加提案の場合（Phase 1F）**: ユーザーの要求に「もう5件」「もっと」「他の提案」等の追加提案キーワードが含まれる場合、以下の4段階のタスク構成を使用してください：
+   
+   **認識パターン**:
+   - 「もう5件提案して」「もう5件教えて」
+   - 「もっと他の主菜」「もっと提案して」「他の提案を見る」
+   
+   **前提条件**:
+   - 「主菜」という単語が含まれる
+   - セッションIDが存在する（sse_session_id）
+   
+   **タスク構成**:
+   a. **task1**: `history_service.history_get_recent_titles(user_id, "main", 14)` を呼び出し、14日間の主菜履歴を取得する。
+   b. **task2**: `session_service.session_get_proposed_titles(sse_session_id, "main")` を呼び出し、セッション内で提案済みのタイトルを取得する。
+      - **重要**: sse_session_idパラメータには、上記の「現在のSSEセッションID」の値を使用してください。決して固定値（例: "session123"）を使用しないでください。
+   c. **task3**: `recipe_service.generate_main_dish_proposals()` を呼び出す。その際:
+      - `inventory_items`: 文字列リテラルとして "session.context.inventory_items" と指定（システムが自動的にセッションから取得）
+      - `excluded_recipes`: "task1.result.data + task2.result.data"（履歴 + セッション提案済み）
+      - `main_ingredient`: 文字列リテラルとして "session.context.main_ingredient" と指定
+      - `menu_type`: 文字列リテラルとして "session.context.menu_type" と指定
+      - **重要**: inventory_itemsパラメータには絶対に "session_inventory" という名前を使用しないこと
+   d. **task4**: `recipe_service.search_recipes_from_web()` を呼び出す。その際、task3で取得したレシピタイトルを `recipe_titles` パラメータに設定する。
+   
+   **重要**: 
+   - 追加提案の場合、在庫取得タスク（inventory_service.get_inventory）は生成しないでください。セッション内に保存された在庫情報を再利用してください。
+   - session_get_proposed_titlesのsse_session_idパラメータには、必ずプロンプトに示された「現在のSSEセッションID」を使用してください。
+
+**パラメータ注入のルール（追加提案対応）**:
+- 履歴除外リスト: `"excluded_recipes": "task1.result.data"`
+- セッション提案済み除外リスト: 上記に追加で `+ task2.result.data`
+- 在庫情報: セッションコンテキストから取得（タスクではなくコンテキスト参照）
+- 主要食材: セッションコンテキストから取得
 
 **曖昧性解消後の処理（Phase 1E）**:
 ユーザーが曖昧性解消のための回答を提供した場合:

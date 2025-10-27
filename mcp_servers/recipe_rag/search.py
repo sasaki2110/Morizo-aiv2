@@ -163,14 +163,14 @@ class RecipeSearchEngine:
                     
                     # 除外レシピチェック
                     if excluded_recipes:
-                        # プレフィックスを除去して正規化したタイトルで比較
-                        normalized_title = title.strip()
+                        # タイトルを正規化（大文字小文字を無視、空白を除去）
+                        normalized_title = title.strip().lower()
                         is_excluded = False
                         for excluded in excluded_recipes:
-                            # プレフィックス ("主菜: ", "副菜: ", "汁物: ") を除去
-                            normalized_excluded = excluded.replace("主菜: ", "").replace("副菜: ", "").replace("汁物: ", "").strip()
-                            # タイトルが除外リストに含まれているか、または部分一致するか
-                            if normalized_title == normalized_excluded or normalized_title in normalized_excluded or normalized_excluded in normalized_title:
+                            # プレフィックスを除去して正規化
+                            normalized_excluded = excluded.replace("主菜: ", "").replace("副菜: ", "").replace("汁物: ", "").strip().lower()
+                            # 完全一致のみで判定（部分一致は使用しない）
+                            if normalized_title == normalized_excluded:
                                 is_excluded = True
                                 break
                         if is_excluded:

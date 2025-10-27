@@ -320,17 +320,20 @@ async def receive_user_selection(
             selection_request.selection,
             selection_request.sse_session_id,
             user_id,
-            token
+            token,
+            selection_request.old_sse_session_id  # 旧セッションIDを渡す
         )
         
         # 選択処理の結果をログ出力
         logger.info(f"📤 [API] Selection processing result: success={result.get('success')}, response_length={len(str(result.get('response', '')))}")
         logger.info(f"📤 [API] Selection result preview: {str(result)[:200]}...")
         
-        if not result["success"]:
+        # Phase 1F: 追加提案時はsuccessキーがない場合がある
+        if result.get("success") is False:
             logger.error(f"❌ [API] Selection processing failed: {result.get('error')}")
             raise HTTPException(status_code=500, detail=result["error"])
         
+        # Phase 1F: 追加提案の成功時はそのまま返す（successキーがない場合がある）
         logger.info(f"✅ [API] Selection processing completed successfully")
         return result
         

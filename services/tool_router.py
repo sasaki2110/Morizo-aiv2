@@ -52,6 +52,9 @@ class ToolRouter:
             # RecipeHistoryService のマッピング（重複回避用）
             ("history_service", "history_get_recent_titles"): "history_get_recent_titles",
             
+            # Phase 1F: SessionService のマッピング（追加提案用）
+            ("session_service", "session_get_proposed_titles"): "session_get_proposed_titles",
+            
             # 他のサービスのマッピング（必要に応じて追加）
         }
         
@@ -76,6 +79,10 @@ class ToolRouter:
             ツール実行結果
         """
         try:
+            # Phase 1F: session_get_proposed_titlesの特別処理
+            if tool_name == "session_get_proposed_titles":
+                return await self._handle_session_get_proposed_titles(parameters)
+            
             # 1. ツール名の検証
             if not self._is_valid_tool(tool_name):
                 raise ToolNotFoundError(f"Unknown tool: {tool_name}")
@@ -193,7 +200,48 @@ class ToolRouter:
     
     def _is_valid_tool(self, tool_name: str) -> bool:
         """ツール名が有効かチェック"""
+        # Phase 1F: session_get_proposed_titlesは特別処理するため有効とする
+        if tool_name == "session_get_proposed_titles":
+            return True
         return tool_name in self.mcp_client.tool_server_mapping
+    
+    async def _handle_session_get_proposed_titles(
+        self,
+        parameters: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Phase 1F: セッション提案済みタイトル取得の特別処理
+        
+        Args:
+            parameters: {
+                "sse_session_id": str,
+                "category": str  # "main", "sub", "soup"
+            }
+        
+        Returns:
+            Dict[str, Any]: {"success": bool, "data": List[str]}
+        """
+        try:
+            self.logger.info(f"🔧 [ToolRouter] Handling session_get_proposed_titles")
+            
+            sse_session_id = parameters.get("sse_session_id")
+            category = parameters.get("category", "main")
+            
+            if not sse_session_id:
+                self.logger.error(f"❌ [ToolRouter] Missing sse_session_id parameter")
+                return {"success": False, "error": "Missing sse_session_id parameter", "data": []}
+            
+            # SessionServiceから提案済みタイトルを取得
+            from services.session_service import session_service
+            
+            titles = await session_service.get_proposed_recipes(sse_session_id, category)
+            
+            self.logger.info(f"✅ [ToolRouter] Retrieved {len(titles)} proposed titles from session")
+            return {"success": True, "data": titles}
+            
+        except Exception as e:
+            self.logger.error(f"❌ [ToolRouter] Error in _handle_session_get_proposed_titles: {e}")
+            return {"success": False, "error": str(e), "data": []}
     
     def get_available_tools(self) -> List[str]:
         """利用可能なツール一覧を取得"""
