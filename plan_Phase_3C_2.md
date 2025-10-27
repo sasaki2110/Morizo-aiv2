@@ -77,6 +77,67 @@ async def _advance_stage(self, sse_session_id: str, user_id: str, selected_recip
 
 ---
 
+## テスト
+
+### 単体試験
+
+#### 段階判定機能のテスト
+**テストファイル**: `tests/phase3c2/test_01_stage_management.py`
+
+**テスト項目**:
+- `_get_current_stage()`が正しい段階を返すこと
+- `_advance_stage()`が次の段階に進めること
+- 主菜選択後、段階が"sub"に進むこと
+- 副菜選択後、段階が"soup"に進むこと
+- 汁物選択後、段階が"completed"に進むこと
+- 使用済み食材が正しく記録されること
+- カテゴリ判定が正しく動作すること
+
+**テスト例**:
+```python
+async def test_advance_stage_main_to_sub():
+    """主菜選択後、段階がsubに進むテスト"""
+    selected_recipe = {
+        "title": "レンコンのきんぴら",
+        "ingredients": ["レンコン", "ニンジン"]
+    }
+    
+    next_stage = await agent._advance_stage(sse_session_id, user_id, selected_recipe)
+    
+    assert next_stage == "sub"
+    
+    # セッションを確認
+    session = await session_service.get_session(sse_session_id, user_id)
+    assert session.current_stage == "sub"
+    assert session.selected_main_dish == selected_recipe
+    assert session.used_ingredients == ["レンコン", "ニンジン"]
+
+async def test_advance_stage_sub_to_soup():
+    """副菜選択後、段階がsoupに進むテスト"""
+    selected_recipe = {
+        "title": "ほうれん草の胡麻和え",
+        "ingredients": ["ほうれん草", "ごま"]
+    }
+    
+    next_stage = await agent._advance_stage(sse_session_id, user_id, selected_recipe)
+    
+    assert next_stage == "soup"
+    
+    session = await session_service.get_session(sse_session_id, user_id)
+    assert session.current_stage == "soup"
+    assert session.used_ingredients == ["レンコン", "ニンジン", "ほうれん草", "ごま"]
+
+async def test_category_detection():
+    """カテゴリ判定テスト"""
+    western_recipe = {"title": "スパゲッティ", "menu_type": "洋食"}
+    next_stage = await agent._advance_stage(sse_session_id, user_id, western_recipe)
+    
+    session = await session_service.get_session(sse_session_id, user_id)
+    assert session.menu_category == "western"
+```
+
+---
+
 ## 期待される効果
 
 - 現在の段階を判定できる

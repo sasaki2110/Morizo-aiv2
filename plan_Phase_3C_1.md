@@ -48,6 +48,49 @@ class Session:
 
 ---
 
+## テスト
+
+### 単体試験
+
+#### Sessionクラスの拡張テスト
+**テストファイル**: `tests/phase3c1/test_01_session_extensions.py`
+
+**テスト項目**:
+- 新規フィールドが正しく初期化されること
+- 既存セッションとの互換性が保たれること
+- セッション取得・保存が正常に動作すること
+
+**テスト例**:
+```python
+def test_session_new_fields():
+    """Sessionに新規フィールドが追加されていること"""
+    session = Session(id="test", user_id="test_user")
+    
+    assert session.current_stage == "main"
+    assert session.selected_main_dish is None
+    assert session.selected_sub_dish is None
+    assert session.selected_soup is None
+    assert session.used_ingredients == []
+    assert session.menu_category == "japanese"
+
+def test_session_backward_compatibility():
+    """既存セッションとの互換性テスト"""
+    existing_session = {
+        "id": "test",
+        "user_id": "test_user",
+        "confirmation_context": {}
+    }
+    session = Session(**existing_session)
+    
+    assert session.id == "test"
+    assert session.user_id == "test_user"
+    # 新規フィールドのデフォルト値
+    assert session.current_stage == "main"
+    assert session.menu_category == "japanese"
+```
+
+---
+
 ## 期待される効果
 
 - 段階的選択の状態を管理できる

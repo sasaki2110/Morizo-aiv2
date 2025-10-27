@@ -53,6 +53,62 @@
 
 ---
 
+## テスト
+
+### 単体試験
+
+#### プランナープロンプトのテスト
+**テストファイル**: `tests/phase3b/test_01_planner_prompt.py`
+
+**テスト項目**:
+- 副菜提案のリクエストで副菜タスクが生成されること
+- 汁物提案のリクエストで汁物タスクが生成されること
+- 4段階タスク構成が正しく生成されること
+- used_ingredientsパラメータが正しく設定されること
+
+**テスト例**:
+```python
+async def test_planner_sub_dish_request():
+    """副菜提案リクエストテスト"""
+    request = "主菜で使っていない食材で副菜を5件提案して"
+    tasks = await action_planner.plan(request, user_id)
+    
+    # 4段階タスク構成
+    assert len(tasks) == 4
+    assert tasks[0].method == "get_inventory"
+    assert tasks[1].method == "history_get_recent_titles"
+    assert tasks[1].parameters["category"] == "sub"
+    assert tasks[2].method == "generate_proposals"
+    assert tasks[2].parameters["category"] == "sub"
+    assert "used_ingredients" in tasks[2].parameters
+    assert tasks[3].method == "search_recipes_from_web"
+
+async def test_planner_soup_request():
+    """汁物提案リクエストテスト"""
+    request = "味噌汁を5件提案して"
+    tasks = await action_planner.plan(request, user_id)
+    
+    # 4段階タスク構成
+    assert len(tasks) == 4
+    assert tasks[2].method == "generate_proposals"
+    assert tasks[2].parameters["category"] == "soup"
+    assert "menu_category" in tasks[2].parameters
+```
+
+### 結合試験
+
+#### プランナー + エージェントの結合テスト
+**テストファイル**: `tests/phase3b/test_02_planner_agent_integration.py`
+
+**テストシナリオ**:
+1. 副菜提案リクエストを送信
+2. プランナーが4段階タスクを生成
+3. タスクが順次実行される
+4. 副菜候補が5件返される
+5. Web検索結果が含まれる
+
+---
+
 ## 期待される効果
 
 - プランナーが副菜・汁物のタスクを生成できるようになる

@@ -104,6 +104,70 @@ async def _generate_soup_request(
 
 ---
 
+## テスト
+
+### 結合試験
+
+#### 自動遷移機能のテスト
+**テストファイル**: `tests/phase3c3/test_01_auto_transition.py`
+
+**テストシナリオ**:
+
+**シナリオ1: 主菜選択後の副菜遷移**
+1. サーバーを起動
+2. 主菜提案リクエストを送信 → 5件の主菜が返される
+3. ユーザーが主菜を選択
+4. 自動的に副菜提案リクエストが生成される
+5. 副菜5件が返される
+
+**シナリオ2: 副菜選択後の汁物遷移**
+1. 副菜を選択
+2. 自動的に汁物提案リクエストが生成される
+3. 汁物5件が返される（カテゴリに応じて味噌汁orスープ）
+
+**シナリオ3: 汁物選択後の完了**
+1. 汁物を選択
+2. 献立完成のメッセージが返される
+3. 選択した主菜・副菜・汁物の履歴が確認できる
+
+**テスト例**:
+```python
+async def test_auto_transition_main_to_sub():
+    """主菜選択後の副菜自動遷移テスト"""
+    # 1. 主菜提案を送信
+    response1 = await agent.process_request(
+        "レンコンの主菜を5件提案して",
+        user_id, token, sse_session_id, False
+    )
+    assert "candidates" in response1
+    
+    # 2. ユーザーが主菜を選択
+    task_id = response1["task_id"]
+    selection_response = await agent.process_user_selection(
+        task_id, 1, sse_session_id, user_id, token
+    )
+    
+    # 3. 自動的に副菜提案が開始される
+    assert "candidates" in selection_response
+    assert "副菜" in selection_response.get("response", "")
+```
+
+### エンドツーエンドテスト
+
+**テストシナリオ**: 完全な段階的選択フロー
+1. 在庫確認
+2. 主菜提案 → 選択
+3. 副菜提案 → 選択（主菜で使った食材を除外）
+4. 汁物提案 → 選択（主菜・副菜で使った食材を除外）
+5. 献立完成
+
+**期待される動作**:
+- 各段階で5件の候補が提案される
+- 使い残し食材を最大化して活用
+- カテゴリ連動（和食→和食→味噌汁、洋食→洋食→スープ）
+
+---
+
 ## 期待される効果
 
 - 主菜選択後、自動的に副菜提案に遷移

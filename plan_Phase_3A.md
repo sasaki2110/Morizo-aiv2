@@ -147,6 +147,105 @@ async def generate_proposals(
 
 ---
 
+---
+
+## テスト
+
+### 単体試験
+
+#### 1. LLM層の汎用メソッドテスト
+**テストファイル**: `tests/phase3a/test_01_llm_generate_candidates.py`
+
+**テスト項目**:
+- category="main"で主菜候補が生成されること
+- category="sub"で副菜候補が生成されること
+- category="soup"で汁物候補が生成されること
+- used_ingredientsが正しく除外されること
+- excluded_recipesが正しく除外されること
+
+**テスト例**:
+```python
+async def test_generate_candidates_main():
+    """主菜候補生成テスト"""
+    result = await llm_client.generate_candidates(
+        inventory_items=["レンコン", "ニンジン", "牛豚合挽肉"],
+        menu_type="",
+        category="main",
+        main_ingredient="レンコン",
+        count=2
+    )
+    assert result["success"]
+    assert len(result["data"]["candidates"]) == 2
+    
+async def test_generate_candidates_sub():
+    """副菜候補生成テスト"""
+    result = await llm_client.generate_candidates(
+        inventory_items=["ニンジン", "ピーマン", "もやし"],
+        menu_type="",
+        category="sub",
+        used_ingredients=["レンコン", "牛豚合挽肉"],  # 主菜で使った食材
+        count=2
+    )
+    assert result["success"]
+    # 副菜候補に主菜で使った食材が含まれていないことを確認
+```
+
+#### 2. RAG層の汎用メソッドテスト
+**テストファイル**: `tests/phase3a/test_02_rag_search_candidates.py`
+
+**テスト項目**:
+- category="main"でmainベクトルストアから検索されること
+- category="sub"でsubベクトルストアから検索されること
+- category="soup"でsoupベクトルストアから検索されること
+- 検索結果が指定したlimit以下の件数であること
+
+**テスト例**:
+```python
+async def test_search_candidates_category():
+    """カテゴリ別ベクトルストア選択テスト"""
+    results_main = await rag_client.search_candidates(
+        ingredients=["レンコン"],
+        menu_type="",
+        category="main",
+        limit=3
+    )
+    assert len(results_main) <= 3
+    
+    results_sub = await rag_client.search_candidates(
+        ingredients=["ピーマン"],
+        menu_type="",
+        category="sub",
+        limit=3
+    )
+    assert len(results_sub) <= 3
+```
+
+#### 3. MCP層の汎用メソッドテスト
+**テストファイル**: `tests/phase3a/test_03_mcp_generate_proposals.py`
+
+**テスト項目**:
+- LLMとRAGの結果が正しく統合されること
+- 主菜・副菜・汁物で正しく動作すること
+- 後方互換性が保たれていること（既存の`generate_main_dish_proposals()`）
+
+**テスト例**:
+```python
+async def test_generate_proposals_integration():
+    """MCP統合テスト"""
+    result = await generate_proposals(
+        inventory_items=["レンコン", "ニンジン", "ピーマン"],
+        user_id="test_user",
+        category="main",
+        menu_type="",
+        token="test_token"
+    )
+    assert result["success"]
+    assert result["data"]["category"] == "main"
+    assert result["data"]["total"] == 5  # LLM 2件 + RAG 3件
+```
+
+---
+
 ## 期待される効果
 
 - 主菜・副菜・汁物を同じメソッドで処理できる
