@@ -160,7 +160,7 @@ class ResponseProcessor:
                 self.logger.info(f"🔍 [DEBUG] data: {data}")
                 
                 # サービス・メソッド別の処理
-                parts, menu = self._process_service_method(service_method, data, is_menu_scenario, task_id)
+                parts, menu = self._process_service_method(service_method, data, is_menu_scenario, task_id, results)
                 response_parts.extend(parts)
                 
                 # メニューデータの更新（最初に見つかったものを使用）
@@ -173,7 +173,7 @@ class ResponseProcessor:
         
         return response_parts, menu_data
     
-    def _process_service_method(self, service_method: str, data: Any, is_menu_scenario: bool, task_id: str) -> tuple[List[str], Optional[Dict[str, Any]]]:
+    def _process_service_method(self, service_method: str, data: Any, is_menu_scenario: bool, task_id: str, results: Dict[str, Any] = None) -> tuple[List[str], Optional[Dict[str, Any]]]:
         """
         サービス・メソッド別の処理
         
@@ -182,6 +182,7 @@ class ResponseProcessor:
             data: 処理データ
             is_menu_scenario: 献立提案シナリオかどうか
             task_id: タスクID
+            results: 全タスクの実行結果
         
         Returns:
             (レスポンスパーツリスト, JSON形式のレシピデータ)
@@ -216,17 +217,22 @@ class ResponseProcessor:
                 pass
                 
             elif service_method == "recipe_service.search_recipes_from_web":
-                response_parts.extend(self.formatters.format_web_recipes(data))
-                # JSON形式のレシピデータも生成
-                menu_data = self.menu_generator.generate_menu_data_json(data)
+                # task4完了時にtask3とtask4の結果を統合して選択UIを表示
+                self.logger.info(f"🔍 [ResponseProcessor] Task4 completed, integrating with task3 results")
                 
-            elif service_method == "recipe_service.generate_main_dish_proposals":
-                # 主菜提案の場合は選択UI用のデータを生成
-                if data.get("success") and data.get("data", {}).get("candidates"):
-                    candidates = data["data"]["candidates"]
+                # resultsからtask3の結果を直接取得
+                task3_result = None
+                if results:
+                    for task_key, task_data in results.items():
+                        if task_key == "task3" and task_data.get("success"):
+                            task3_result = task_data.get("result", {})
+                            break
+                
+                if task3_result and task3_result.get("success") and task3_result.get("data", {}).get("candidates"):
+                    candidates = task3_result["data"]["candidates"]
                     
-                    # task4のWeb検索結果を統合（4タスク構成の場合）
-                    candidates_with_urls = self._integrate_web_search_results(candidates, task_id)
+                    # task4のWeb検索結果を統合
+                    candidates_with_urls = self._integrate_web_search_results(candidates, task_id, data)
                     
                     # 選択UI用のデータを返す
                     return [], {
@@ -236,8 +242,15 @@ class ResponseProcessor:
                         "message": "以下の5件から選択してください:"
                     }
                 else:
-                    # エラー時は従来のテキスト表示
-                    response_parts.extend(self.formatters.format_main_dish_proposals(data))
+                    # task3の結果が取得できない場合は通常のWeb検索結果を表示
+                    response_parts.extend(self.formatters.format_web_recipes(data))
+                    menu_data = self.menu_generator.generate_menu_data_json(data)
+                
+            elif service_method == "recipe_service.generate_main_dish_proposals":
+                # task3完了時は進捗のみ（選択UIは表示しない）
+                # task4完了後に統合処理を行う
+                self.logger.info(f"🔍 [ResponseProcessor] Task3 completed, waiting for task4 integration")
+                pass  # 何も返さない（進捗状態のみ）
                 
             else:
                 # 未知のサービス・メソッドの場合は汎用処理
@@ -249,20 +262,27 @@ class ResponseProcessor:
         
         return response_parts, menu_data
     
-    def _integrate_web_search_results(self, candidates: List[Dict[str, Any]], task_id: str) -> List[Dict[str, Any]]:
+    def _integrate_web_search_results(self, candidates: List[Dict[str, Any]], task_id: str, task4_data: Dict[str, Any] = None) -> List[Dict[str, Any]]:
         """
         Web検索結果を主菜提案結果に統合
         
         Args:
             candidates: 主菜提案の候補リスト
             task_id: タスクID
+            task4_data: task4の実行結果データ
         
         Returns:
             URL情報が統合された候補リスト
         """
         try:
-            # タスク実行履歴からtask4のWeb検索結果を取得
-            web_search_results = self._get_web_search_results_from_task_history(task_id)
+            # task4の結果からWeb検索結果を取得
+            web_search_results = []
+            if task4_data and task4_data.get("success") and task4_data.get("data"):
+                web_data = task4_data["data"]
+                # Web検索結果からレシピリストを抽出
+                if "rag_menu" in web_data and "main_dish" in web_data["rag_menu"]:
+                    recipes = web_data["rag_menu"]["main_dish"].get("recipes", [])
+                    web_search_results = recipes
             
             if not web_search_results:
                 self.logger.info(f"🔍 [ResponseProcessor] No web search results found for task {task_id}")
@@ -276,12 +296,16 @@ class ResponseProcessor:
                 # 対応するWeb検索結果を取得
                 if i < len(web_search_results):
                     web_result = web_search_results[i]
-                    if web_result.get("success") and web_result.get("data"):
+                    if web_result.get("url"):
                         # URL情報を統合
-                        integrated_candidate["urls"] = self._extract_urls_from_web_result(web_result["data"])
-                        self.logger.info(f"🔗 [ResponseProcessor] Integrated URLs for candidate {i}: {len(integrated_candidate.get('urls', []))} URLs")
+                        integrated_candidate["urls"] = [{
+                            "title": web_result.get("title", ""),
+                            "url": web_result.get("url", ""),
+                            "domain": self._extract_domain(web_result.get("url", ""))
+                        }]
+                        self.logger.info(f"🔗 [ResponseProcessor] Integrated URLs for candidate {i}: {integrated_candidate.get('urls', [])}")
                     else:
-                        self.logger.warning(f"⚠️ [ResponseProcessor] Web search failed for candidate {i}")
+                        self.logger.warning(f"⚠️ [ResponseProcessor] Web search result has no URL for candidate {i}")
                 else:
                     self.logger.warning(f"⚠️ [ResponseProcessor] No web search result for candidate {i}")
                 
@@ -294,6 +318,32 @@ class ResponseProcessor:
             self.logger.error(f"❌ [ResponseProcessor] Error integrating web search results: {e}")
             return candidates
     
+    def _get_task3_result_from_history(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """
+        タスク実行履歴からtask3の結果を取得
+        
+        Args:
+            task_id: タスクID
+        
+        Returns:
+            task3の結果
+        """
+        try:
+            # タスク実行履歴からtask3の結果を取得
+            # 実際の実装では、タスク実行履歴サービスを使用
+            self.logger.info(f"🔍 [ResponseProcessor] Getting task3 result for task {task_id}")
+            
+            # TODO: 実際のタスク実行履歴サービスから取得
+            # task_history = self.task_history_service.get_task_results(task_id)
+            # task3_result = task_history.get("task3", {}).get("result", {})
+            
+            # 簡易実装としてNoneを返す（実際の実装では正しい結果を返す）
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"❌ [ResponseProcessor] Error getting task3 result: {e}")
+            return None
+
     def _get_web_search_results_from_task_history(self, task_id: str) -> List[Dict[str, Any]]:
         """
         タスク実行履歴からWeb検索結果を取得
