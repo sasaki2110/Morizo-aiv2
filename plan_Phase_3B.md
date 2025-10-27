@@ -23,6 +23,9 @@
   - `generate_proposals(category="sub", used_ingredients=..., ...)`: 副菜5件を提案（新規）
   - `generate_proposals(category="soup", used_ingredients=..., menu_category=..., ...)`: 汁物5件を提案（新規）
 
+- **session_service**: セッション管理サービス（Phase 1Fで実装済み）
+  - `session_get_proposed_titles(sse_session_id: str, category: str, ...)`: セッション内で提案済みのレシピタイトルを取得（追加提案の重複回避用）。categoryは"main"/"sub"/"soup"。
+
 **主菜提案（Phase 2で実装済み）**:
 - 4段階タスク構成（在庫取得→履歴取得→主菜提案→Web検索）
 - ユーザーが主菜を選択

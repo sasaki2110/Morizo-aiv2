@@ -25,14 +25,16 @@ interface SelectionOptionsProps {
   candidates: RecipeCandidate[];
   onSelect: (selection: number) => void;
   taskId: string;
-  currentStage: 'main' | 'sub' | 'soup';  // 新規追加
-  usedIngredients?: string[];  // 新規追加
-  menuCategory?: 'japanese' | 'western' | 'chinese';  // 新規追加
+  currentStage?: 'main' | 'sub' | 'soup';  // Phase 3で追加（既存互換のためオプショナル）
+  usedIngredients?: string[];  // Phase 3で追加
+  menuCategory?: 'japanese' | 'western' | 'chinese';  // Phase 3で追加
   isLoading?: boolean;
 }
 ```
 
-**修正の理由**: 段階情報を表示するため
+**修正の理由**: 段階情報を表示するため（Phase 1Fの主菜追加提案機能との互換性確保）
+
+**注意**: Phase 1Fで実装された「他の提案を見る」ボタンとの併存を考慮し、Propsはオプショナルとする
 
 **修正の影響**: 既存のPropsにオプショナルフィールドを追加
 
@@ -54,17 +56,23 @@ interface ChatMessage {
   requiresSelection?: boolean;
   candidates?: RecipeCandidate[];
   taskId?: string;
-  selectedRecipe?: {  // 新規追加
+  selectedRecipe?: {  // Phase 3で追加
     main?: RecipeCandidate;
     sub?: RecipeCandidate;
     soup?: RecipeCandidate;
   };
+  // Phase 3で追加：段階情報
+  currentStage?: 'main' | 'sub' | 'soup';
+  usedIngredients?: string[];
+  menuCategory?: 'japanese' | 'western' | 'chinese';
 }
 ```
 
-**修正の理由**: 選択履歴を表示するため
+**修正の理由**: 選択履歴と段階情報を表示するため（Phase 1Fの主菜追加提案機能と互換）
 
-**修正の影響**: 既存のメッセージ型に新規フィールドを追加
+**修正の影響**: 既存のメッセージ型に新規フィールドを追加（オプショナルなので後方互換）
+
+**注意**: Phase 1Fで実装済みの「他の提案を見る」ボタンがPhase 3の段階的選択機能と正しく連携できるようにする
 
 ---
 

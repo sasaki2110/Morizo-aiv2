@@ -25,7 +25,11 @@ class Session:
     updated_at: datetime
     confirmation_context: Dict = {}
     
-    # 新規フィールド（段階的選択用）
+    # Phase 1Fで追加済みフィールド（重複回避用）
+    proposed_recipes: Dict[str, List[str]]  # {"main": [...], "sub": [...], "soup": [...]}
+    context: Dict[str, Any]  # {"inventory_items": [...], "main_ingredient": ..., "menu_type": ...}
+    
+    # 新規フィールド（段階的選択用 - Phase 3で追加）
     current_stage: str = "main"  # "main", "sub", "soup"
     selected_main_dish: Optional[Dict] = None  # {"title": "...", "ingredients": [...]}
     selected_sub_dish: Optional[Dict] = None
@@ -34,9 +38,11 @@ class Session:
     menu_category: str = "japanese"  # "japanese", "western", "chinese"
 ```
 
-**修正の理由**: 段階の状態管理が必要
+**注意**: `proposed_recipes`と`context`はPhase 1Fで既に追加されているため、Phase 3C-1では段階的選択用のフィールドのみを追加する。
 
-**修正の影響**: 既存のセッション管理に新規フィールドを追加（後方互換）
+**修正の理由**: 段階の状態管理が必要（`proposed_recipes`はPhase 1Fで既に追加済み）
+
+**修正の影響**: Phase 1Fで追加済みの`proposed_recipes`と`context`を活用し、段階的選択用の新規フィールドを追加（後方互換）
 
 ---
 
@@ -66,6 +72,11 @@ def test_session_new_fields():
     """Sessionに新規フィールドが追加されていること"""
     session = Session(id="test", user_id="test_user")
     
+    # Phase 1Fで追加済みフィールド
+    assert "proposed_recipes" in session.__dict__
+    assert "context" in session.__dict__
+    
+    # Phase 3C-1で追加される新規フィールド
     assert session.current_stage == "main"
     assert session.selected_main_dish is None
     assert session.selected_sub_dish is None
