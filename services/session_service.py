@@ -21,6 +21,46 @@ class Session:
         self.created_at = datetime.now()
         self.last_accessed = datetime.now()
         self.data: Dict[str, Any] = {}
+        self.confirmation_context: Dict[str, Any] = {
+            "type": None,  # "inventory_operation" | "ambiguity_resolution"
+            "original_request": None,  # 元のユーザーリクエスト
+            "clarification_question": None,  # システムが出した確認質問
+            "detected_ambiguity": None,  # 検出された曖昧性の詳細
+            "timestamp": None
+        }
+    
+    def is_waiting_for_confirmation(self) -> bool:
+        """確認待ち状態かどうか"""
+        return self.confirmation_context.get("type") is not None
+    
+    def set_ambiguity_confirmation(
+        self, 
+        original_request: str, 
+        question: str,
+        ambiguity_details: Dict[str, Any]
+    ):
+        """曖昧性解消の確認状態を設定"""
+        self.confirmation_context = {
+            "type": "ambiguity_resolution",
+            "original_request": original_request,
+            "clarification_question": question,
+            "detected_ambiguity": ambiguity_details,
+            "timestamp": datetime.now()
+        }
+    
+    def clear_confirmation_context(self):
+        """確認コンテキストをクリア"""
+        self.confirmation_context = {
+            "type": None,
+            "original_request": None,
+            "clarification_question": None,
+            "detected_ambiguity": None,
+            "timestamp": None
+        }
+    
+    def get_confirmation_type(self) -> Optional[str]:
+        """確認タイプを取得"""
+        return self.confirmation_context.get("type")
 
 
 class SessionService:
@@ -60,10 +100,11 @@ class SessionService:
             # セッションIDを生成
             session_id = str(uuid.uuid4())
             
-            # セッションを作成
+            # セッションを作成（user_idがNoneの場合は"system"を使用）
+            actual_user_id = user_id if user_id else "system"
             session = Session(
                 session_id=session_id,
-                user_id=user_id
+                user_id=actual_user_id
             )
             
             # ユーザー別セッション管理

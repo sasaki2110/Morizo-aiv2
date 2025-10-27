@@ -19,6 +19,8 @@ load_dotenv()
 class LLMClient:
     """LLM API呼び出しクラス"""
     
+    MAX_TOKENS = 2500  # マックストークン数
+    
     def __init__(self):
         """初期化"""
         self.logger = GenericLogger("service", "llm.client")
@@ -53,7 +55,7 @@ class LLMClient:
             self.logger.info(f"🔧 [LLMClient] Calling OpenAI API with model: {self.openai_model}")
             
             # プロンプトとトークン数をログ出力（5行省略表示）
-            log_prompt_with_tokens(prompt, max_tokens=2000, logger_name="service.llm")
+            log_prompt_with_tokens(prompt, max_tokens=self.MAX_TOKENS, logger_name="service.llm")
             
             response = await self.openai_client.chat.completions.create(
                 model=self.openai_model,
@@ -62,7 +64,7 @@ class LLMClient:
                     {"role": "user", "content": prompt}
                 ],
                 temperature=self.openai_temperature,
-                max_tokens=2000
+                max_tokens=self.MAX_TOKENS
             )
             
             content = response.choices[0].message.content

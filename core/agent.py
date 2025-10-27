@@ -76,32 +76,20 @@ class TrueReactAgent:
             self.logger.info(f"🎯 [AGENT] Starting request processing for user {user_id}")
             self.logger.info(f"📝 [AGENT] User request: '{user_request}'")
             self.logger.info(f"🔄 [AGENT] Is confirmation response: {is_confirmation_response}")
-            if sse_session_id:
-                self.logger.info(f"📡 [AGENT] SSE session ID: {sse_session_id}")
-            
-            # デバッグログ: フラグとセッションIDの詳細
-            self.logger.info(f"🔍 [AGENT] Debug - is_confirmation_response: {is_confirmation_response} (type: {type(is_confirmation_response)})")
-            self.logger.info(f"🔍 [AGENT] Debug - sse_session_id: {sse_session_id} (type: {type(sse_session_id)})")
             
             # 曖昧性解決の回答かチェック
             if is_confirmation_response and sse_session_id:
-                self.logger.info(f"🔄 [AGENT] Checking for saved confirmation state...")
                 saved_state = await self.session_service.get_confirmation_state(sse_session_id)
                 if saved_state:
-                    self.logger.info(f"🔄 [AGENT] Found saved state, resuming from confirmation")
-                    self.logger.info(f"🔍 [AGENT] Debug - saved_state keys: {list(saved_state.keys()) if saved_state else 'None'}")
+                    self.logger.info(f"🔄 [AGENT] Resuming from confirmation")
                     # ActionPlannerをスキップして、保存された状態から再開
                     return await self._resume_from_confirmation(
                         saved_state, user_request, user_id, token, sse_session_id
                     )
                 else:
                     self.logger.warning(f"⚠️ [AGENT] Confirmation response but no saved state found for session: {sse_session_id}")
-                    self.logger.info(f"🔍 [AGENT] Debug - No saved state, proceeding as new request")
-            else:
-                self.logger.info(f"🔍 [AGENT] Debug - Not a confirmation response or no session ID")
             
             # 新しいリクエストの場合の通常処理
-            self.logger.info(f"🆕 [AGENT] Processing as new request")
             
             # Initialize task chain manager
             task_chain_manager = TaskChainManager(sse_session_id)
@@ -124,7 +112,7 @@ class TrueReactAgent:
             if execution_result.status == "needs_confirmation":
                 self.logger.info(f"⚠️ [AGENT] Confirmation required, handling user interaction...")
                 confirmation_result = await self._handle_confirmation(
-                    execution_result, user_id, task_chain_manager, token
+                    execution_result, user_id, task_chain_manager, token, user_request
                 )
                 
                 # 確認が必要な場合は辞書を返す
@@ -173,7 +161,7 @@ class TrueReactAgent:
             self.logger.error(f"❌ [AGENT] Request processing failed: {str(e)}")
             return {"response": f"リクエストの処理中にエラーが発生しました: {str(e)}"}
     
-    async def _handle_confirmation(self, execution_result: ExecutionResult, user_id: str, task_chain_manager: TaskChainManager, token: str) -> dict:
+    async def _handle_confirmation(self, execution_result: ExecutionResult, user_id: str, task_chain_manager: TaskChainManager, token: str, user_request: str) -> dict:
         """Handle confirmation process when ambiguity is detected."""
         try:
             self.logger.info(f"🤝 [AGENT] Starting confirmation handling for user {user_id}")
@@ -194,6 +182,27 @@ class TrueReactAgent:
             # 元のタスク情報を保持
             ambiguity_info = confirmation_context.get("ambiguity_info")
             original_tasks = confirmation_context.get("original_tasks", [])
+            
+            # Phase 1E: セッションに確認コンテキストを保存
+            if task_chain_manager.sse_session_id:
+                session = await self.session_service.get_session(task_chain_manager.sse_session_id, user_id)
+                if not session:
+                    # セッションが存在しない場合は作成
+                    session = await self.session_service.create_session(user_id)
+                    # 新しく作成したセッションをtask_chain_managerのセッションIDで保存
+                    if user_id not in self.session_service.user_sessions:
+                        self.session_service.user_sessions[user_id] = {}
+                    self.session_service.user_sessions[user_id][task_chain_manager.sse_session_id] = session
+                    # セッションIDを更新
+                    session.id = task_chain_manager.sse_session_id
+                
+                confirmation_message = execution_result.message if hasattr(execution_result, 'message') else ""
+                session.set_ambiguity_confirmation(
+                    original_request=user_request,  # 元のユーザーリクエスト
+                    question=confirmation_message,  # 確認質問
+                    ambiguity_details=ambiguity_info.details if hasattr(ambiguity_info, 'details') else {}
+                )
+                self.logger.info(f"💾 [AGENT] Confirmation context saved to session")
             
             # 状態を保存
             from datetime import datetime
@@ -269,7 +278,29 @@ class TrueReactAgent:
             original_tasks = saved_state['original_tasks']
             ambiguity_info = saved_state['ambiguity_info']
             
-            # ユーザーの回答を処理
+            # Phase 1E: 曖昧性解消の場合は、コンテキスト統合を行う
+            if hasattr(ambiguity_info, 'details') and ambiguity_info.details.get("type") == "main_ingredient_optional_selection":
+                # 元のユーザーリクエストを取得（セッションから）
+                session = await self.session_service.get_session(sse_session_id, user_id)
+                if session and session.confirmation_context.get("original_request"):
+                    original_request = session.confirmation_context.get("original_request")
+                    
+                    # コンテキスト統合
+                    integrated_request = await self._integrate_confirmation_response(
+                        original_request,
+                        user_response,
+                        ambiguity_info.details
+                    )
+                    
+                    # 確認コンテキストをクリア
+                    session.clear_confirmation_context()
+                    
+                    # 統合されたリクエストで通常のプランニングループを実行
+                    self.logger.info(f"▶️ [AGENT] Resuming planning loop with integrated request: {integrated_request}")
+                    result = await self.process_request(integrated_request, user_id, token, sse_session_id, False)
+                    return result
+            
+            # 既存の処理（在庫操作確認等）
             confirmation_context = {
                 'ambiguity_info': ambiguity_info,
                 'user_response': user_response,
@@ -447,3 +478,67 @@ class TrueReactAgent:
                 "success": False,
                 "error": str(e)
             }
+    
+    async def _integrate_confirmation_response(
+        self, 
+        original_request: str,  # 「主菜を教えて」
+        user_response: str,     # 「レンコンでお願い」
+        confirmation_context: Dict[str, Any]  # 確認時のコンテキスト
+    ) -> str:
+        """
+        元のリクエストとユーザー回答を統合して、
+        完全なリクエストを生成する
+        
+        例:
+        - 元: 「主菜を教えて」
+        - 回答: 「レンコンでお願い」
+        - 結果: 「レンコンの主菜を教えて」
+        """
+        
+        self.logger.info(f"🔗 [AGENT] Integrating request")
+        self.logger.info(f"  Original: {original_request}")
+        self.logger.info(f"  Response: {user_response}")
+        
+        # パターン1: 「指定しない」系の回答
+        proceed_keywords = ["いいえ", "そのまま", "提案して", "在庫から", "このまま", "進めて", "指定しない", "2"]
+        if any(keyword in user_response for keyword in proceed_keywords):
+            # 元のリクエストをそのまま使用
+            integrated_request = original_request
+            self.logger.info(f"✅ [AGENT] Integrated (proceed): {integrated_request}")
+            return integrated_request
+        
+        # パターン2: 食材名が含まれている
+        # 簡易的な統合（LLMを使わない方式）
+        # 「レンコン」「レンコンで」「レンコンを使って」等を抽出
+        ingredient = self._extract_ingredient_simple(user_response)
+        
+        if ingredient:
+            # 元のリクエストに食材を追加
+            # 「主菜を教えて」→「レンコンの主菜を教えて」
+            if "主菜" in original_request or "メイン" in original_request:
+                integrated_request = f"{ingredient}の主菜を教えて"
+            elif "料理" in original_request:
+                integrated_request = f"{ingredient}の料理を教えて"
+            else:
+                integrated_request = f"{ingredient}を使って{original_request}"
+            
+            self.logger.info(f"✅ [AGENT] Integrated (ingredient): {integrated_request}")
+            return integrated_request
+        
+        # パターン3: 統合できない場合は元のリクエストを返す
+        self.logger.warning(f"⚠️ [AGENT] Could not integrate, using original request")
+        return original_request
+    
+    def _extract_ingredient_simple(self, user_response: str) -> Optional[str]:
+        """ユーザー応答から食材名を簡易抽出"""
+        
+        # 助詞を除去
+        cleaned = user_response.replace("で", "").replace("を", "").replace("が", "")
+        cleaned = cleaned.replace("使って", "").replace("お願い", "").replace("ください", "")
+        cleaned = cleaned.strip()
+        
+        # 空でなければ食材名として扱う
+        if cleaned and len(cleaned) > 0:
+            return cleaned
+        
+        return None
