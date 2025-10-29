@@ -43,6 +43,14 @@ class Session:
             "menu_type": ""
         }
         
+        # Phase 2.5D: 段階的選択管理
+        self.current_stage: str = "main"  # "main", "sub", "soup", "completed"
+        self.selected_main_dish: Optional[Dict[str, Any]] = None
+        self.selected_sub_dish: Optional[Dict[str, Any]] = None
+        self.selected_soup: Optional[Dict[str, Any]] = None
+        self.used_ingredients: list = []
+        self.menu_category: str = "japanese"  # "japanese", "western", "chinese"
+        
         # ロガー設定
         self.logger = GenericLogger("service", "session")
     
@@ -132,6 +140,76 @@ class Session:
             Any: コンテキスト値
         """
         return self.context.get(key, default)
+    
+    # Phase 2.5D: 段階管理メソッド
+    def get_current_stage(self) -> str:
+        """現在の段階を取得
+        
+        Returns:
+            str: 現在の段階（"main", "sub", "soup", "completed"）
+        """
+        return self.current_stage
+    
+    def set_selected_recipe(self, category: str, recipe: Dict[str, Any]) -> None:
+        """選択したレシピを保存
+        
+        Args:
+            category: カテゴリ（"main", "sub", "soup"）
+            recipe: レシピ情報
+        """
+        if category == "main":
+            self.selected_main_dish = recipe
+            self.current_stage = "sub"
+            # 使用済み食材を記録
+            if "ingredients" in recipe:
+                self.used_ingredients.extend(recipe["ingredients"])
+            # カテゴリ判定
+            menu_type = recipe.get("menu_type", "")
+            if any(x in menu_type for x in ["洋食", "western", "西洋"]):
+                self.menu_category = "western"
+            elif any(x in menu_type for x in ["中華", "chinese"]):
+                self.menu_category = "chinese"
+            else:
+                self.menu_category = "japanese"
+        elif category == "sub":
+            self.selected_sub_dish = recipe
+            self.current_stage = "soup"
+            # 使用済み食材を記録
+            if "ingredients" in recipe:
+                self.used_ingredients.extend(recipe["ingredients"])
+        elif category == "soup":
+            self.selected_soup = recipe
+            self.current_stage = "completed"
+        
+        self.logger.info(f"✅ [SESSION] Recipe selected for {category}")
+    
+    def get_selected_recipes(self) -> Dict[str, Any]:
+        """選択済みレシピを取得
+        
+        Returns:
+            Dict[str, Any]: 選択済みレシピの辞書
+        """
+        return {
+            "main": self.selected_main_dish,
+            "sub": self.selected_sub_dish,
+            "soup": self.selected_soup
+        }
+    
+    def get_used_ingredients(self) -> list:
+        """使用済み食材を取得
+        
+        Returns:
+            list: 使用済み食材のリスト
+        """
+        return self.used_ingredients
+    
+    def get_menu_category(self) -> str:
+        """献立カテゴリを取得
+        
+        Returns:
+            str: 献立カテゴリ（"japanese", "western", "chinese"）
+        """
+        return self.menu_category
 
 
 class SessionService:
@@ -552,6 +630,108 @@ class SessionService:
         except Exception as e:
             self.logger.error(f"❌ [SessionService] Error in get_session_context: {e}")
             return default
+    
+    # Phase 2.5D: 段階管理メソッド
+    async def get_current_stage(self, sse_session_id: str) -> str:
+        """現在の段階を取得
+        
+        Args:
+            sse_session_id: SSEセッションID
+        
+        Returns:
+            str: 現在の段階
+        """
+        try:
+            session = await self.get_session(sse_session_id, user_id=None)
+            if session:
+                stage = session.get_current_stage()
+                self.logger.info(f"✅ [SessionService] Retrieved current stage: {stage}")
+                return stage
+            return "main"
+        except Exception as e:
+            self.logger.error(f"❌ [SessionService] Error in get_current_stage: {e}")
+            return "main"
+    
+    async def set_selected_recipe(
+        self, 
+        sse_session_id: str, 
+        category: str, 
+        recipe: Dict[str, Any]
+    ) -> None:
+        """選択したレシピを保存
+        
+        Args:
+            sse_session_id: SSEセッションID
+            category: カテゴリ（"main", "sub", "soup"）
+            recipe: レシピ情報
+        """
+        try:
+            session = await self.get_session(sse_session_id, user_id=None)
+            if session:
+                session.set_selected_recipe(category, recipe)
+                self.logger.info(f"✅ [SessionService] Recipe selected for {category}")
+        except Exception as e:
+            self.logger.error(f"❌ [SessionService] Error in set_selected_recipe: {e}")
+    
+    async def get_selected_recipes(self, sse_session_id: str) -> Dict[str, Any]:
+        """選択済みレシピを取得
+        
+        Args:
+            sse_session_id: SSEセッションID
+        
+        Returns:
+            Dict[str, Any]: 選択済みレシピの辞書
+        """
+        try:
+            session = await self.get_session(sse_session_id, user_id=None)
+            if session:
+                recipes = session.get_selected_recipes()
+                self.logger.info(f"✅ [SessionService] Retrieved selected recipes")
+                return recipes
+            return {"main": None, "sub": None, "soup": None}
+        except Exception as e:
+            self.logger.error(f"❌ [SessionService] Error in get_selected_recipes: {e}")
+            return {"main": None, "sub": None, "soup": None}
+    
+    async def get_used_ingredients(self, sse_session_id: str) -> list:
+        """使用済み食材を取得
+        
+        Args:
+            sse_session_id: SSEセッションID
+        
+        Returns:
+            list: 使用済み食材のリスト
+        """
+        try:
+            session = await self.get_session(sse_session_id, user_id=None)
+            if session:
+                ingredients = session.get_used_ingredients()
+                self.logger.info(f"✅ [SessionService] Retrieved used ingredients")
+                return ingredients
+            return []
+        except Exception as e:
+            self.logger.error(f"❌ [SessionService] Error in get_used_ingredients: {e}")
+            return []
+    
+    async def get_menu_category(self, sse_session_id: str) -> str:
+        """献立カテゴリを取得
+        
+        Args:
+            sse_session_id: SSEセッションID
+        
+        Returns:
+            str: 献立カテゴリ（"japanese", "western", "chinese"）
+        """
+        try:
+            session = await self.get_session(sse_session_id, user_id=None)
+            if session:
+                category = session.get_menu_category()
+                self.logger.info(f"✅ [SessionService] Retrieved menu category: {category}")
+                return category
+            return "japanese"
+        except Exception as e:
+            self.logger.error(f"❌ [SessionService] Error in get_menu_category: {e}")
+            return "japanese"
 
 
 # シングルトンインスタンスを作成
