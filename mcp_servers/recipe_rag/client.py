@@ -293,14 +293,27 @@ class RecipeRAGClient:
             # 適切なベクトルストアを選択
             search_engine = self._get_search_engines()[category]
             
-            # 主要食材がある場合は検索クエリに追加（主菜の場合）
+            # 検索クエリを構築
             search_query = ingredients.copy()
+            
+            # 副菜・汁物の場合、主菜で使った食材を除外
+            if category in ["sub", "soup"] and used_ingredients:
+                search_query = [ing for ing in search_query if ing not in used_ingredients]
+                logger.info(f"🔍 [RAG] Excluded {len(used_ingredients)} used ingredients from search query")
+            
+            # 主要食材の処理（主菜の場合のみ有効）
+            rag_main_ingredient = None
             if main_ingredient and category == "main":
                 search_query.insert(0, main_ingredient)  # 主要食材を優先
+                rag_main_ingredient = main_ingredient
+            elif main_ingredient and category in ["sub", "soup"]:
+                # 副菜・汁物ではmain_ingredientは使用しない（プランナーの誤認識を無視）
+                logger.info(f"⚠️ [RAG] Ignoring main_ingredient '{main_ingredient}' for {category} category")
+                rag_main_ingredient = None
             
             # RAG検索（除外レシピを渡す）
             results = await search_engine.search_similar_recipes(
-                search_query, menu_type, excluded_recipes, limit, main_ingredient
+                search_query, menu_type, excluded_recipes, limit, rag_main_ingredient
             )
             
             # 各結果に使用食材リストを含める
