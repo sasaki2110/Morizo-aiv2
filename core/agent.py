@@ -497,9 +497,16 @@ class TrueReactAgent:
                 )
                 self.logger.info(f"📝 [AGENT] Generated sub dish request: {next_request}")
                 
-                # 次のリクエストを処理
-                result = await self.process_request(next_request, user_id, token, sse_session_id, False)
-                return result
+                # セッションに次の提案リクエストを保存（フロントエンドが読み取る）
+                session.set_context("next_stage_request", next_request)
+                self.logger.info(f"💾 [AGENT] Saved next stage request to session")
+                
+                # フラグを返してフロントエンドに次の提案を要求
+                return {
+                    "success": True,
+                    "message": "主菜が確定しました。副菜を提案します。",
+                    "requires_next_stage": True
+                }
             
             elif next_stage == "soup":
                 # 汁物提案に自動遷移
@@ -509,9 +516,16 @@ class TrueReactAgent:
                 )
                 self.logger.info(f"📝 [AGENT] Generated soup request: {next_request}")
                 
-                # 次のリクエストを処理
-                result = await self.process_request(next_request, user_id, token, sse_session_id, False)
-                return result
+                # セッションに次の提案リクエストを保存（フロントエンドが読み取る）
+                session.set_context("next_stage_request", next_request)
+                self.logger.info(f"💾 [AGENT] Saved next stage request to session")
+                
+                # フラグを返してフロントエンドに次の提案を要求
+                return {
+                    "success": True,
+                    "message": "副菜が確定しました。汁物を提案します。",
+                    "requires_next_stage": True
+                }
             
             elif next_stage == "completed":
                 # 完了

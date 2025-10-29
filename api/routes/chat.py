@@ -95,14 +95,42 @@ async def chat(request: ChatRequest, http_request: Request):
         # TrueReactAgentの初期化と実行
         agent = TrueReactAgent()
         
-        # リクエストの処理（TaskChainManagerが進捗送信を担当）
-        response_data = await agent.process_request(
-            request.message, 
-            user_id,
-            token=token,
-            sse_session_id=sse_session_id,
-            is_confirmation_response=actual_confirm
-        )
+        # Phase 3C-3: 次の段階のリクエストがセッションに保存されている場合はそれを使用
+        from services.session_service import session_service
+        session = await session_service.get_session(sse_session_id, user_id)
+        
+        if session:
+            next_stage_request = session.get_context("next_stage_request")
+            if next_stage_request:
+                logger.info(f"🔄 [API] Next stage request found in session: {next_stage_request}")
+                # セッションから削除して実行
+                session.set_context("next_stage_request", None)
+                # 次の段階のリクエストを実行
+                response_data = await agent.process_request(
+                    next_stage_request,
+                    user_id,
+                    token=token,
+                    sse_session_id=sse_session_id,
+                    is_confirmation_response=False
+                )
+            else:
+                # 通常のリクエストの処理
+                response_data = await agent.process_request(
+                    request.message, 
+                    user_id,
+                    token=token,
+                    sse_session_id=sse_session_id,
+                    is_confirmation_response=actual_confirm
+                )
+        else:
+            # 通常のリクエストの処理
+            response_data = await agent.process_request(
+                request.message, 
+                user_id,
+                token=token,
+                sse_session_id=sse_session_id,
+                is_confirmation_response=actual_confirm
+            )
         
         # レスポンスの生成
         if isinstance(response_data, dict) and response_data.get("requires_selection"):
@@ -115,7 +143,10 @@ async def chat(request: ChatRequest, http_request: Request):
                 user_id=user_id,
                 requires_selection=response_data.get("requires_selection", False),
                 candidates=response_data.get("candidates"),
-                task_id=response_data.get("task_id")
+                task_id=response_data.get("task_id"),
+                current_stage=response_data.get("current_stage"),
+                used_ingredients=response_data.get("used_ingredients"),
+                menu_category=response_data.get("menu_category")
             )
             logger.info(f"🔍 [API] Selection response built: requires_selection={response.requires_selection}, candidates_count={len(response.candidates or [])}")
         elif isinstance(response_data, dict) and "requires_confirmation" in response_data:
@@ -140,7 +171,10 @@ async def chat(request: ChatRequest, http_request: Request):
                 user_id=user_id,
                 requires_selection=response_data.get("requires_selection", False),
                 candidates=response_data.get("candidates"),
-                task_id=response_data.get("task_id")
+                task_id=response_data.get("task_id"),
+                current_stage=response_data.get("current_stage"),
+                used_ingredients=response_data.get("used_ingredients"),
+                menu_category=response_data.get("menu_category")
             )
             logger.info(f"🔍 [API] Selection response built: requires_selection={response.requires_selection}, candidates_count={len(response.candidates or [])}")
         else:
@@ -332,6 +366,16 @@ async def receive_user_selection(
         if result.get("success") is False:
             logger.error(f"❌ [API] Selection processing failed: {result.get('error')}")
             raise HTTPException(status_code=500, detail=result["error"])
+        
+        # Phase 3C-3: 自動遷移の場合、responseキーがある場合は正常として処理
+        if "response" in result and result.get("success") is None:
+            logger.info(f"🔄 [API] Auto-transition detected, returning requires_next_stage flag")
+            return {
+                "success": True,
+                "message": "選択を受け付けました。次段階に自動遷移します。",
+                "response": result.get("response", ""),
+                "requires_next_stage": True  # フロントエンドに次の段階の提案を要求
+            }
         
         # Phase 1F: 追加提案の成功時はそのまま返す（successキーがない場合がある）
         logger.info(f"✅ [API] Selection processing completed successfully")

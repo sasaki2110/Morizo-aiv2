@@ -26,6 +26,12 @@ class ChatResponse(BaseModel):
     requires_selection: Optional[bool] = Field(default=False, description="ユーザー選択が必要かどうか")
     candidates: Optional[List[Dict[str, Any]]] = Field(default=None, description="選択候補リスト")
     task_id: Optional[str] = Field(default=None, description="タスクID")
+    # Phase 3D: 段階情報
+    current_stage: Optional[str] = Field(default=None, description="現在の段階（main/sub/soup）")
+    used_ingredients: Optional[List[str]] = Field(default=None, description="使い残し食材リスト")
+    menu_category: Optional[str] = Field(default=None, description="メニューカテゴリ（japanese/western/chinese）")
+    # Phase 3C-3: 自動遷移フラグ
+    requires_next_stage: Optional[bool] = Field(default=False, description="次の段階の提案が必要かどうか")
 
 
 class HealthResponse(BaseModel):

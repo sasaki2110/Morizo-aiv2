@@ -262,12 +262,37 @@ class ResponseProcessor:
                             await session_service.set_candidates(sse_session_id, category, candidates_with_urls)
                             self.logger.info(f"💾 [RESPONSE] Saved {len(candidates_with_urls)} {category} candidates to session")
                     
+                    # Phase 3D: セッションから段階情報を取得
+                    stage_info = {}
+                    if sse_session_id:
+                        from services.session_service import session_service
+                        session = await session_service.get_session(sse_session_id, user_id=None)
+                        if session:
+                            current_stage = session.get_current_stage()
+                            self.logger.info(f"🔍 [ResponseProcessor] Phase 3D: current_stage={current_stage}")
+                            stage_info["current_stage"] = current_stage
+                            
+                            # 使い残し食材を取得
+                            used_ingredients = session.get_used_ingredients()
+                            self.logger.info(f"🔍 [ResponseProcessor] Phase 3D: used_ingredients={used_ingredients}")
+                            if used_ingredients:
+                                stage_info["used_ingredients"] = used_ingredients
+                            
+                            # メニューカテゴリを取得
+                            menu_category = session.get_menu_category()
+                            self.logger.info(f"🔍 [ResponseProcessor] Phase 3D: menu_category={menu_category}")
+                            if menu_category:
+                                stage_info["menu_category"] = menu_category
+                        
+                        self.logger.info(f"🔍 [ResponseProcessor] Phase 3D: stage_info={stage_info}")
+                    
                     # 選択UI用のデータを返す
                     return [], {
                         "requires_selection": True,
                         "candidates": candidates_with_urls,
                         "task_id": task_id,
-                        "message": "以下の5件から選択してください:"
+                        "message": "以下の5件から選択してください:",
+                        **stage_info  # Phase 3D: 段階情報を統合
                     }
                 else:
                     # task3の結果が取得できない場合は通常のWeb検索結果を表示
