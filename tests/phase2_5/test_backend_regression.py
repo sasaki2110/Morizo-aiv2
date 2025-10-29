@@ -75,6 +75,8 @@ class TestCase:
     expected_ambiguity: Optional[str] = None
     setup: Optional[Callable] = None
     verify: Optional[Callable] = None
+    requires_two_stage: bool = False  # 曖昧性解消が必要なテスト
+    second_stage_message: Optional[str] = None  # 2段階目のメッセージ
 
 
 class IntegrationTestClient:
@@ -217,6 +219,44 @@ async def run_test_case(client: IntegrationTestClient, test_case: TestCase) -> b
             print(f"🔍 追加検証を実行...")
             await test_case.verify(client, response)
         
+        # 7. 2段階テスト（曖昧性解消）
+        if test_case.requires_two_stage and response.get("requires_confirmation") and test_case.second_stage_message:
+            print(f"\n{'─'*60}")
+            print(f"🔄 2段階テスト: 曖昧性解消")
+            print(f"{'─'*60}")
+            
+            confirmation_session_id = response.get("confirmation_session_id")
+            if not confirmation_session_id:
+                print(f"❌ confirmation_session_id がありません")
+                return False
+            
+            print(f"📤 確認質問への回答送信: {test_case.second_stage_message}")
+            print(f"📝 confirmation_session_id: {confirmation_session_id}")
+            
+            # 2段階目のリクエスト送信
+            second_response = client.send_chat_request(
+                test_case.second_stage_message,
+                sse_session_id=confirmation_session_id,
+                confirm=True
+            )
+            
+            if second_response is None:
+                print(f"❌ 2段階目のリクエストが失敗しました")
+                return False
+            
+            # 2段階目のレスポンス検証
+            assert "response" in second_response, f"レスポンスに'response'フィールドがありません"
+            assert "success" in second_response, f"レスポンスに'success'フィールドがありません"
+            
+            second_success = second_response["success"]
+            second_response_text = second_response.get("response", "")
+            
+            assert second_success is True, f"2段階目の処理が成功していません: success={second_success}"
+            assert len(second_response_text) > 0, f"2段階目のレスポンスが空です"
+            
+            print(f"📝 2段階目のレスポンス: {second_response_text[:200]}...")
+            print(f"✅ 2段階目のテスト成功")
+        
         print(f"✅ テスト成功: {test_case.name}")
         return True
         
@@ -251,6 +291,38 @@ TEST_CASES = [
         setup=lambda client: setup_multiple_items(client)
     ),
     
+    # パターン1-2b: 在庫削除（曖昧性解消）
+    TestCase(
+        name="在庫削除（曖昧性解消）",
+        message="牛乳を削除して",
+        expected_pattern="inventory",
+        expected_tasks=[],  # 曖昧性検出のためタスクは生成されない
+        expected_ambiguity="multiple_items",
+        requires_two_stage=True,
+        second_stage_message="最新の",
+        setup=lambda client: setup_multiple_items(client)
+    ),
+    
+    # パターン1-3: 在庫更新（全件）
+    TestCase(
+        name="在庫更新（全件）",
+        message="牛乳を全部1本に変えて",
+        expected_pattern="inventory",
+        expected_tasks=["update_inventory"],
+        expected_ambiguity=None,
+        setup=lambda client: setup_multiple_items(client)
+    ),
+    
+    # パターン2-1: 献立生成
+    TestCase(
+        name="献立生成",
+        message="献立を教えて",
+        expected_pattern="menu",
+        expected_tasks=["get_inventory", "generate_menu_plan", "search_menu_from_rag", "search_recipes_from_web"],
+        expected_ambiguity=None,
+        setup=lambda client: setup_menu_inventory(client)
+    ),
+    
     # パターン3-1: 主菜提案（食材指定）
     TestCase(
         name="主菜提案（食材指定）",
@@ -275,6 +347,18 @@ async def setup_multiple_items(client: IntegrationTestClient):
 async def setup_renkon_inventory(client: IntegrationTestClient):
     """レンコンを在庫に登録"""
     client.add_inventory("レンコン", 1, "個")
+    await asyncio.sleep(0.5)
+
+
+async def setup_menu_inventory(client: IntegrationTestClient):
+    """献立生成用の在庫を登録（野菜・肉・調味料）"""
+    client.add_inventory("キャベツ", 1, "個")
+    await asyncio.sleep(0.5)
+    client.add_inventory("人参", 2, "本")
+    await asyncio.sleep(0.5)
+    client.add_inventory("もやし", 1, "袋")
+    await asyncio.sleep(0.5)
+    client.add_inventory("豚肉", 300, "g")
     await asyncio.sleep(0.5)
 
 
