@@ -28,7 +28,7 @@ class ChatResponse(BaseModel):
     task_id: Optional[str] = Field(default=None, description="タスクID")
     # Phase 3D: 段階情報
     current_stage: Optional[str] = Field(default=None, description="現在の段階（main/sub/soup）")
-    used_ingredients: Optional[List[str]] = Field(default=None, description="使い残し食材リスト")
+    used_ingredients: Optional[List[str]] = Field(default=None, description="使い残し食材リスト（在庫食材 - 使用済み食材）")
     menu_category: Optional[str] = Field(default=None, description="メニューカテゴリ（japanese/western/chinese）")
     # Phase 3C-3: 自動遷移フラグ
     requires_next_stage: Optional[bool] = Field(default=False, description="次の段階の提案が必要かどうか")
