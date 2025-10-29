@@ -97,12 +97,22 @@ class RequestAnalyzer:
                 return "soup_additional"
         
         # 優先度3: カテゴリ提案（初回）
-        if "主菜" in request or "メイン" in request or "main" in request.lower():
-            return "main"
-        elif "副菜" in request or "サブ" in request or "sub" in request.lower():
-            return "sub"
-        elif "汁物" in request or "スープ" in request or "味噌汁" in request or "soup" in request.lower():
+        # 注意: 説明文中の「主菜・副菜」などに反応しないよう、汁物・副菜を優先的にチェック
+        # 汁物のチェック（最優先：説明文に「主菜・副菜」が含まれる可能性があるため）
+        if ("汁物を" in request or "汁物が" in request or "汁物の" in request or 
+            "スープを" in request or "スープが" in request or "スープの" in request or
+            "味噌汁を" in request or "味噌汁が" in request or "味噌汁の" in request or
+            "soup" in request.lower()):
             return "soup"
+        # 副菜のチェック（主菜より優先：説明文に「主菜で使っていない」などが含まれる可能性があるため）
+        elif ("副菜を" in request or "副菜が" in request or "副菜の" in request or
+              "サブを" in request or "sub" in request.lower()):
+            return "sub"
+        # 主菜のチェック（最後：より具体的な文脈を優先）
+        elif ("主菜を" in request or "主菜が" in request or "主菜の" in request or
+              "主菜で" in request or "メインを" in request or "メインが" in request or
+              "main" in request.lower() or "主菜" in request or "メイン" in request):
+            return "main"
         
         # 優先度4: 在庫操作
         if self._is_inventory_operation(request):

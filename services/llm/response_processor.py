@@ -318,9 +318,28 @@ class ResponseProcessor:
                         **stage_info  # Phase 3D: 段階情報を統合
                     }
                 else:
-                    # task3の結果が取得できない場合は通常のWeb検索結果を表示
-                    response_parts.extend(self.formatters.format_web_recipes(data))
-                    menu_data = self.menu_generator.generate_menu_data_json(data)
+                    # task3の結果が取得できない場合
+                    # デバッグ: results辞書の内容を確認
+                    self.logger.error(f"❌ [ResponseProcessor] Task3 result not found")
+                    self.logger.error(f"🔍 [ResponseProcessor] Available task keys in results: {list(results.keys()) if results else 'results is None or empty'}")
+                    
+                    # task3_resultが取得できない理由をログ出力
+                    if results:
+                        for task_key, task_data in results.items():
+                            self.logger.info(f"🔍 [ResponseProcessor] Task key: {task_key}, success: {task_data.get('success')}, has result: {'result' in task_data}")
+                            if task_key == "task3":
+                                task_data_result = task_data.get("result", {})
+                                self.logger.info(f"🔍 [ResponseProcessor] Task3 result structure: success={task_data_result.get('success')}, has_data={'data' in task_data_result}, data_keys={list(task_data_result.get('data', {}).keys()) if isinstance(task_data_result.get('data'), dict) else 'data is not dict'}")
+                    
+                    # 献立提案の場合のみMenu data形式の出力を生成
+                    if is_menu_scenario:
+                        response_parts.extend(self.formatters.format_web_recipes(data))
+                        menu_data = self.menu_generator.generate_menu_data_json(data)
+                    else:
+                        # 副菜・汁物提案の場合、task3の結果が取得できないのは致命的な問題
+                        # しかし、まずは原因を特定するため、エラーログを出力
+                        self.logger.error(f"❌ [ResponseProcessor] FATAL: Task3 result not found for category proposal")
+                        response_parts.append("レシピ提案の結果を取得できませんでした。")
                 
             elif service_method == "recipe_service.generate_proposals":
                 # task3完了時は進捗のみ（選択UIは表示しない）
@@ -330,11 +349,15 @@ class ResponseProcessor:
                 # Phase 1F: 提案済みタイトルをセッションに保存
                 if data.get("success") and sse_session_id:
                     from services.session_service import session_service
-                    candidates = data.get("data", {}).get("candidates", [])
+                    data_obj = data.get("data", {})
+                    candidates = data_obj.get("candidates", [])
                     titles = [c.get("title") for c in candidates if c.get("title")]
                     
-                    await session_service.add_proposed_recipes(sse_session_id, "main", titles)
-                    self.logger.info(f"💾 [RESPONSE] Saved {len(titles)} proposed titles to session")
+                    # カテゴリを取得（main/sub/soup）。デフォルトは"main"
+                    category = data_obj.get("category", "main")
+                    
+                    await session_service.add_proposed_recipes(sse_session_id, category, titles)
+                    self.logger.info(f"💾 [RESPONSE] Saved {len(titles)} proposed titles to session (category: {category})")
                 
                 # 何も返さない（進捗状態のみ）
                 pass

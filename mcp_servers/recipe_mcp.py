@@ -352,7 +352,7 @@ async def generate_proposals(
     user_id: str,
     category: str = "main",  # "main", "sub", "soup"
     menu_type: str = "",
-    main_ingredient: str = None,
+    main_ingredient: Optional[str] = None,
     used_ingredients: List[str] = None,
     excluded_recipes: List[str] = None,
     menu_category: str = "japanese",  # "japanese", "western", "chinese"

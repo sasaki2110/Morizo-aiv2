@@ -17,11 +17,16 @@ class ResponseProcessorUtils:
         self.logger = GenericLogger("service", "llm.response.utils")
     
     def is_menu_scenario(self, results: Dict[str, Any]) -> bool:
-        """献立提案シナリオかどうかを判定"""
+        """
+        献立提案シナリオかどうかを判定
+        
+        注意: 副菜・汁物提案でも`search_recipes_from_web`が使用されるため、
+        `generate_menu_plan`または`search_menu_from_rag`が含まれている場合のみ献立提案と判定する。
+        """
+        # 献立提案専用のサービスのみをチェック
         menu_services = [
             "recipe_service.generate_menu_plan",
-            "recipe_service.search_menu_from_rag", 
-            "recipe_service.search_recipes_from_web"
+            "recipe_service.search_menu_from_rag"
         ]
         
         for task_result in results.values():
