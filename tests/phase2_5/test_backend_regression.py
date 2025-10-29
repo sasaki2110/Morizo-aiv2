@@ -272,6 +272,15 @@ async def run_test_case(client: IntegrationTestClient, test_case: TestCase) -> b
 
 # テストケース定義
 TEST_CASES = [
+    # パターン0: 挨拶リクエスト
+    TestCase(
+        name="挨拶リクエスト",
+        message="こんにちは",
+        expected_pattern="other",
+        expected_tasks=[],
+        expected_ambiguity=None
+    ),
+    
     # パターン1-1: 在庫追加（単純ケース）
     TestCase(
         name="在庫追加",
