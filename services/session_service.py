@@ -36,6 +36,13 @@ class Session:
             "soup": []
         }
         
+        # Phase 3C-3: 候補情報の保存（詳細情報を含む）
+        self.candidates: Dict[str, list] = {
+            "main": [],
+            "sub": [],
+            "soup": []
+        }
+        
         # Phase 1F: セッション内コンテキスト（在庫情報等）
         self.context: Dict[str, Any] = {
             "inventory_items": [],
@@ -118,6 +125,28 @@ class Session:
         if category in self.proposed_recipes:
             self.proposed_recipes[category] = []
             self.logger.info(f"🧹 [SESSION] Cleared proposed {category} recipes")
+    
+    def set_candidates(self, category: str, candidates: list) -> None:
+        """候補情報を保存（Phase 3C-3）
+        
+        Args:
+            category: カテゴリ（"main", "sub", "soup"）
+            candidates: 候補情報のリスト
+        """
+        if category in self.candidates:
+            self.candidates[category] = candidates
+            self.logger.info(f"💾 [SESSION] Set {len(candidates)} {category} candidates")
+    
+    def get_candidates(self, category: str) -> list:
+        """候補情報を取得
+        
+        Args:
+            category: カテゴリ（"main", "sub", "soup"）
+        
+        Returns:
+            list: 候補情報のリスト
+        """
+        return self.candidates.get(category, [])
     
     def set_context(self, key: str, value: Any) -> None:
         """セッションコンテキストを設定
@@ -581,6 +610,52 @@ class SessionService:
             return []
         except Exception as e:
             self.logger.error(f"❌ [SessionService] Error in get_proposed_recipes: {e}")
+            return []
+    
+    async def set_candidates(
+        self,
+        sse_session_id: str,
+        category: str,
+        candidates: list
+    ) -> None:
+        """候補情報をセッションに保存（Phase 3C-3）
+        
+        Args:
+            sse_session_id: SSEセッションID
+            category: カテゴリ（"main", "sub", "soup"）
+            candidates: 候補情報のリスト
+        """
+        try:
+            session = await self.get_session(sse_session_id, user_id=None)
+            if session:
+                session.set_candidates(category, candidates)
+                self.logger.info(f"✅ [SessionService] Set {len(candidates)} {category} candidates to session")
+        except Exception as e:
+            self.logger.error(f"❌ [SessionService] Error in set_candidates: {e}")
+    
+    async def get_candidates(
+        self,
+        sse_session_id: str,
+        category: str
+    ) -> list:
+        """候補情報をセッションから取得
+        
+        Args:
+            sse_session_id: SSEセッションID
+            category: カテゴリ（"main", "sub", "soup"）
+        
+        Returns:
+            list: 候補情報のリスト
+        """
+        try:
+            session = await self.get_session(sse_session_id, user_id=None)
+            if session:
+                candidates = session.get_candidates(category)
+                self.logger.info(f"✅ [SessionService] Retrieved {len(candidates)} {category} candidates from session")
+                return candidates
+            return []
+        except Exception as e:
+            self.logger.error(f"❌ [SessionService] Error in get_candidates: {e}")
             return []
     
     async def set_session_context(

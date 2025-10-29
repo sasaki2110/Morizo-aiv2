@@ -458,7 +458,7 @@ class TrueReactAgent:
             }
     
     async def process_user_selection(self, task_id: str, selection: int, sse_session_id: str, user_id: str, token: str, old_sse_session_id: str = None) -> dict:
-        """ユーザー選択結果の処理"""
+        """ユーザー選択結果の処理（自動遷移機能付き）"""
         try:
             self.logger.info(f"📥 [AGENT] Processing user selection: task_id={task_id}, selection={selection}")
             
@@ -469,21 +469,74 @@ class TrueReactAgent:
                     task_id, sse_session_id, user_id, token, old_sse_session_id
                 )
             
-            # タスクチェーンマネージャーを初期化（SSEセッションIDから復元）
-            task_chain_manager = TaskChainManager(sse_session_id)
+            # Phase 3C-2: 段階判定と進行処理
+            # 現在の段階を取得
+            current_stage = await self._get_current_stage(sse_session_id, user_id)
+            self.logger.info(f"🔍 [AGENT] Current stage: {current_stage}")
             
-            # タスクを再開
-            task_chain_manager.resume_execution()
+            # セッションを取得
+            session = await self.session_service.get_session(sse_session_id, user_id)
+            if not session:
+                self.logger.error(f"❌ [AGENT] Session not found: {sse_session_id}")
+                return {"success": False, "error": "Session not found"}
             
-            self.logger.info(f"▶️ [AGENT] Task {task_id} resumed successfully")
+            # 選択されたレシピ情報を取得
+            selected_recipe = await self._get_selected_recipe_from_task(task_id, selection, sse_session_id)
+            self.logger.info(f"✅ [AGENT] Selected recipe: {selected_recipe.get('title', 'Unknown')}")
             
-            # 選択されたレシピをもとに後続処理を実行
-            # （Phase 2Bで副菜・汁物の選択に進む処理を追加予定）
+            # Phase 3C-3: 段階を進める
+            next_stage = await self._advance_stage(sse_session_id, user_id, selected_recipe)
+            self.logger.info(f"🔄 [AGENT] Advanced to stage: {next_stage}")
+            
+            # 次の段階に応じた処理
+            if next_stage == "sub":
+                # 副菜提案に自動遷移
+                self.logger.info(f"🔄 [AGENT] Auto-transitioning to sub dish proposal")
+                next_request = await self._generate_sub_dish_request(
+                    selected_recipe, sse_session_id, user_id
+                )
+                self.logger.info(f"📝 [AGENT] Generated sub dish request: {next_request}")
+                
+                # 次のリクエストを処理
+                result = await self.process_request(next_request, user_id, token, sse_session_id, False)
+                return result
+            
+            elif next_stage == "soup":
+                # 汁物提案に自動遷移
+                self.logger.info(f"🔄 [AGENT] Auto-transitioning to soup proposal")
+                next_request = await self._generate_soup_request(
+                    selected_recipe, sse_session_id, user_id
+                )
+                self.logger.info(f"📝 [AGENT] Generated soup request: {next_request}")
+                
+                # 次のリクエストを処理
+                result = await self.process_request(next_request, user_id, token, sse_session_id, False)
+                return result
+            
+            elif next_stage == "completed":
+                # 完了
+                self.logger.info(f"✅ [AGENT] All stages completed")
+                sub_dish = await self._get_selected_sub_dish(sse_session_id, user_id)
+                soup = await self._get_selected_soup(sse_session_id, user_id)
+                
+                return {
+                    "success": True,
+                    "message": "献立が完成しました。",
+                    "menu": {
+                        "main": selected_recipe,
+                        "sub": sub_dish,
+                        "soup": soup
+                    }
+                }
+            
+            # その他の場合（通常の選択処理）
+            self.logger.info(f"✅ [AGENT] Selection {selection} processed for stage {current_stage}")
             
             return {
                 "success": True,
                 "task_id": task_id,
                 "selection": selection,
+                "current_stage": current_stage,
                 "message": f"選択肢 {selection} を受け付けました。"
             }
             
@@ -662,3 +715,177 @@ class TrueReactAgent:
             return cleaned
         
         return None
+    
+    async def _get_current_stage(self, sse_session_id: str, user_id: str) -> str:
+        """現在の段階を取得
+        
+        Args:
+            sse_session_id: SSEセッションID
+            user_id: ユーザーID
+        
+        Returns:
+            str: 現在の段階（"main", "sub", "soup", "completed"）
+        """
+        try:
+            session = await self.session_service.get_session(sse_session_id, user_id)
+            if not session:
+                self.logger.warning(f"⚠️ [AGENT] Session not found, returning default stage 'main'")
+                return "main"
+            
+            stage = session.get_current_stage()
+            self.logger.info(f"✅ [AGENT] Current stage: {stage}")
+            return stage
+            
+        except Exception as e:
+            self.logger.error(f"❌ [AGENT] Failed to get current stage: {e}")
+            return "main"
+    
+    async def _get_selected_recipe_from_task(self, task_id: str, selection: int, sse_session_id: str) -> Dict[str, Any]:
+        """選択されたレシピをタスクから取得
+        
+        Args:
+            task_id: タスクID
+            selection: 選択されたインデックス
+            sse_session_id: SSEセッションID
+        
+        Returns:
+            Dict[str, Any]: 選択されたレシピ情報
+        """
+        try:
+            self.logger.info(f"🔍 [AGENT] Getting selected recipe: task_id={task_id}, selection={selection}")
+            
+            # セッションから候補情報を取得
+            session = await self.session_service.get_session(sse_session_id, user_id=None)
+            if not session:
+                self.logger.error(f"❌ [AGENT] Session not found: {sse_session_id}")
+                return {}
+            
+            # 現在の段階を取得
+            current_stage = session.get_current_stage()
+            category = current_stage  # "main", "sub", "soup"
+            
+            # セッションから候補情報を取得
+            candidates = session.get_candidates(category)
+            if not candidates or len(candidates) < selection:
+                self.logger.error(f"❌ [AGENT] Invalid selection: {selection} for {len(candidates)} candidates")
+                return {}
+            
+            # 選択されたレシピを取得
+            selected_recipe = candidates[selection - 1]  # インデックスは1ベース
+            self.logger.info(f"✅ [AGENT] Selected recipe: {selected_recipe.get('title', 'Unknown')}")
+            
+            return selected_recipe
+            
+        except Exception as e:
+            self.logger.error(f"❌ [AGENT] Failed to get selected recipe: {e}")
+            return {}
+    
+    async def _advance_stage(self, sse_session_id: str, user_id: str, selected_recipe: Dict[str, Any]) -> str:
+        """段階を進める
+        
+        Args:
+            sse_session_id: SSEセッションID
+            user_id: ユーザーID
+            selected_recipe: 選択されたレシピ情報
+        
+        Returns:
+            str: 次の段階の名前
+        """
+        try:
+            # セッションを取得
+            session = await self.session_service.get_session(sse_session_id, user_id)
+            if not session:
+                self.logger.error(f"❌ [AGENT] Session not found")
+                return "main"
+            
+            # 現在の段階を取得
+            current_stage = session.get_current_stage()
+            self.logger.info(f"🔍 [AGENT] Current stage: {current_stage}")
+            
+            # 段階に応じて処理
+            if current_stage == "main":
+                # 主菜を選択した場合、副菜段階に進む
+                session.set_selected_recipe("main", selected_recipe)
+                next_stage = "sub"
+                self.logger.info(f"✅ [AGENT] Advanced to stage: sub")
+                
+            elif current_stage == "sub":
+                # 副菜を選択した場合、汁物段階に進む
+                session.set_selected_recipe("sub", selected_recipe)
+                next_stage = "soup"
+                self.logger.info(f"✅ [AGENT] Advanced to stage: soup")
+                
+            elif current_stage == "soup":
+                # 汁物を選択した場合、完了
+                session.set_selected_recipe("soup", selected_recipe)
+                next_stage = "completed"
+                self.logger.info(f"✅ [AGENT] Completed all stages")
+                
+            else:
+                self.logger.warning(f"⚠️ [AGENT] Unexpected stage: {current_stage}")
+                next_stage = current_stage
+            
+            return next_stage
+            
+        except Exception as e:
+            self.logger.error(f"❌ [AGENT] Failed to advance stage: {e}")
+            return "main"
+    
+    async def _generate_sub_dish_request(
+        self, main_dish: Dict, sse_session_id: str, user_id: str
+    ) -> str:
+        """
+        副菜提案用のリクエストを生成
+        
+        例: "副菜を5件提案して"（主菜で使った食材を除外）
+        """
+        session = await self.session_service.get_session(sse_session_id, user_id)
+        if not session:
+            return "副菜を5件提案して"
+        
+        used_ingredients = session.get_used_ingredients()
+        main_ingredient_text = f"（主菜で使った食材: {', '.join(used_ingredients)} は除外して）"
+        
+        return f"主菜で使っていない食材で副菜を5件提案して。{main_ingredient_text}"
+    
+    async def _generate_soup_request(
+        self, sub_dish: Dict, sse_session_id: str, user_id: str
+    ) -> str:
+        """
+        汁物提案用のリクエストを生成
+        
+        例: "汁物を5件提案して"（和食なら味噌汁、洋食ならスープ）
+        """
+        session = await self.session_service.get_session(sse_session_id, user_id)
+        if not session:
+            return "汁物を5件提案して"
+        
+        used_ingredients = session.get_used_ingredients()
+        menu_category = session.get_menu_category()
+        
+        soup_type = "味噌汁" if menu_category == "japanese" else "スープ"
+        used_ingredients_text = f"（主菜・副菜で使った食材: {', '.join(used_ingredients)} は除外して）"
+        
+        return f"{soup_type}を5件提案して。{used_ingredients_text}"
+    
+    async def _get_selected_sub_dish(self, sse_session_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        """選択済み副菜を取得"""
+        try:
+            session = await self.session_service.get_session(sse_session_id, user_id)
+            if session:
+                return session.selected_sub_dish
+            return None
+        except Exception as e:
+            self.logger.error(f"❌ [AGENT] Failed to get selected sub dish: {e}")
+            return None
+    
+    async def _get_selected_soup(self, sse_session_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        """選択済み汁物を取得"""
+        try:
+            session = await self.session_service.get_session(sse_session_id, user_id)
+            if session:
+                return session.selected_soup
+            return None
+        except Exception as e:
+            self.logger.error(f"❌ [AGENT] Failed to get selected soup: {e}")
+            return None

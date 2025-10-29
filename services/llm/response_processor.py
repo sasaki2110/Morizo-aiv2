@@ -252,6 +252,16 @@ class ResponseProcessor:
                         await session_service.add_proposed_recipes(sse_session_id, "main", titles)
                         self.logger.info(f"💾 [RESPONSE] Saved {len(titles)} proposed titles to session")
                     
+                    # Phase 3C-3: 候補情報をセッションに保存（詳細情報）
+                    if sse_session_id:
+                        from services.session_service import session_service
+                        session = await session_service.get_session(sse_session_id, user_id=None)
+                        if session:
+                            current_stage = session.get_current_stage()
+                            category = current_stage  # "main", "sub", "soup"
+                            await session_service.set_candidates(sse_session_id, category, candidates_with_urls)
+                            self.logger.info(f"💾 [RESPONSE] Saved {len(candidates_with_urls)} {category} candidates to session")
+                    
                     # 選択UI用のデータを返す
                     return [], {
                         "requires_selection": True,
