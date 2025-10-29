@@ -35,8 +35,8 @@ d. **task4**: `recipe_service.search_recipes_from_web()` を呼び出す。そ�
 **献立データの処理ルール**:
 - task2とtask3の結果は辞書形式の献立データです（main_dish, side_dish, soupフィールドを含む）
 - task4では、task2とtask3の両方の結果を統合してレシピ検索を行ってください：
-  - `"recipe_titles": ["task2.result.main_dish", "task2.result.side_dish", "task2.result.soup", "task3.result.main_dish", "task3.result.side_dish", "task3.result.soup"]`
-  - または、主菜のみ: `"recipe_titles": ["task2.result.main_dish", "task3.result.main_dish"]`
+  - `"recipe_titles": ["task2.result.data.main_dish", "task2.result.data.side_dish", "task2.result.data.soup", "task3.result.data.main_dish", "task3.result.data.side_dish", "task3.result.data.soup"]`
+  - または、主菜のみ: `"recipe_titles": ["task2.result.data.main_dish", "task3.result.data.main_dish"]`
 
 **献立生成の具体例（サービスメソッド名対応）**:
 {{
@@ -71,7 +71,7 @@ d. **task4**: `recipe_service.search_recipes_from_web()` を呼び出す。そ�
             "service": "recipe_service",
             "method": "search_recipes_from_web",
             "parameters": {{ 
-                "recipe_titles": ["task2.result.main_dish", "task2.result.side_dish", "task2.result.soup", "task3.result.main_dish", "task3.result.side_dish", "task3.result.soup"],
+                "recipe_titles": ["task2.result.data.main_dish", "task2.result.data.side_dish", "task2.result.data.soup", "task3.result.data.main_dish", "task3.result.data.side_dish", "task3.result.data.soup"],
                 "menu_categories": ["main_dish", "side_dish", "soup", "main_dish", "side_dish", "soup"],
                 "menu_source": "mixed",
                 "num_results": 3

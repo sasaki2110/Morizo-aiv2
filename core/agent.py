@@ -161,7 +161,11 @@ class TrueReactAgent:
                         "requires_selection": menu_data.get("requires_selection", False),
                         "candidates": menu_data.get("candidates"),
                         "task_id": menu_data.get("task_id"),
-                        "message": menu_data.get("message", "選択してください")
+                        "message": menu_data.get("message", "選択してください"),
+                        # Phase 3D: 段階情報を追加
+                        "current_stage": menu_data.get("current_stage"),
+                        "used_ingredients": menu_data.get("used_ingredients"),
+                        "menu_category": menu_data.get("menu_category")
                     }
                 else:
                     return {"response": final_response}

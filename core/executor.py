@@ -299,18 +299,35 @@ class TaskExecutor:
                 for item in value:
                     if isinstance(item, str):
                         # リスト内の各要素を解決
-                        if ".result." in item and item.endswith((".main_dish", ".side_dish", ".soup")):
-                            field_value = self._extract_field_from_result(item, previous_results)
-                            resolved_list.append(field_value)
-                            self.logger.info(f"🔗 [EXECUTOR] Resolved list item '{item}' = '{field_value}'")
-                        elif item.endswith(".result"):
-                            # 単一タスク結果参照
-                            task_ref = item[:-7]
-                            if task_ref in previous_results:
-                                task_result = previous_results[task_ref]
-                                if isinstance(task_result, dict) and task_result.get("success"):
-                                    resolved_list.append(task_result.get("result", {}))
-                                    self.logger.info(f"🔗 [EXECUTOR] Resolved list item '{item}' = task result")
+                        if ".result." in item:
+                            # ネストされたパス（task2.result.data.main_dishなど）の場合は_extract_nested_pathを使用
+                            # シンプルなパス（task2.result.main_dish）の場合は_extract_field_from_resultを使用
+                            dot_count = item.count(".")
+                            if dot_count >= 3 and item.endswith((".main_dish", ".side_dish", ".soup")):
+                                # ネストされたパスの場合
+                                field_value = self._extract_nested_path(item, previous_results)
+                                resolved_list.append(field_value if field_value is not None else "")
+                                self.logger.info(f"🔗 [EXECUTOR] Resolved nested path list item '{item}' = '{field_value}'")
+                            elif item.endswith((".main_dish", ".side_dish", ".soup")):
+                                # シンプルなパスの場合
+                                field_value = self._extract_field_from_result(item, previous_results)
+                                resolved_list.append(field_value)
+                                self.logger.info(f"🔗 [EXECUTOR] Resolved list item '{item}' = '{field_value}'")
+                            elif item.endswith(".result"):
+                                # 単一タスク結果参照
+                                task_ref = item[:-7]
+                                if task_ref in previous_results:
+                                    task_result = previous_results[task_ref]
+                                    if isinstance(task_result, dict) and task_result.get("success"):
+                                        resolved_list.append(task_result.get("result", {}))
+                                        self.logger.info(f"🔗 [EXECUTOR] Resolved list item '{item}' = task result")
+                                else:
+                                    resolved_list.append(item)
+                            else:
+                                # その他の.result.を含む文字列はネストパスとして処理
+                                resolved_value = self._extract_nested_path(item, previous_results)
+                                resolved_list.append(resolved_value if resolved_value is not None else item)
+                                self.logger.info(f"🔗 [EXECUTOR] Resolved nested path list item '{item}' = '{resolved_value}'")
                         else:
                             # その他の文字列はそのまま
                             resolved_list.append(item)
