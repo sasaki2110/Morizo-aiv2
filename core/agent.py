@@ -590,18 +590,27 @@ class TrueReactAgent:
             self.logger.info(f"🔍 [AGENT] New SSE session ID: {sse_session_id}")
             self.logger.info(f"🔍 [AGENT] Old SSE session ID: {old_sse_session_id}")
             
-            # 旧セッションから主要食材を取得（コンテキスト復元）
+            # 旧セッションからコンテキストを取得（コンテキスト復元）
             main_ingredient = None
+            current_stage = None  # "main" | "sub" | "soup"
+            inventory_items = None
+            menu_type = None
             if old_sse_session_id:
                 old_session = await self.session_service.get_session(old_sse_session_id, user_id)
                 if old_session:
                     main_ingredient = old_session.get_context("main_ingredient")
                     inventory_items = old_session.get_context("inventory_items")
                     menu_type = old_session.get_context("menu_type")
+                    # 現在の段階（main/sub/soup）を取得
+                    try:
+                        current_stage = old_session.get_current_stage()
+                    except Exception:
+                        current_stage = None
                     
-                    # 旧セッションから提案済みタイトルを取得
-                    proposed_titles = old_session.get_proposed_recipes("main")
-                    self.logger.info(f"🔍 [AGENT] Retrieved from old session: main_ingredient={main_ingredient}, proposed_titles count={len(proposed_titles)}")
+                    # 旧セッションから提案済みタイトルを取得（現在段階に合わせる）
+                    stage_for_titles = current_stage if current_stage in ["main", "sub", "soup"] else "main"
+                    proposed_titles = old_session.get_proposed_recipes(stage_for_titles)
+                    self.logger.info(f"🔍 [AGENT] Retrieved from old session: main_ingredient={main_ingredient}, current_stage={current_stage}, proposed_titles[{stage_for_titles}] count={len(proposed_titles)}")
                     
                     # 新しいセッションにコンテキストをコピー
                     new_session = await self.session_service.get_session(sse_session_id, user_id)
@@ -611,28 +620,80 @@ class TrueReactAgent:
                     new_session.set_context("main_ingredient", main_ingredient)
                     new_session.set_context("inventory_items", inventory_items)
                     new_session.set_context("menu_type", menu_type)
+
+                    # 現在段階・使用済み食材・選択済みレシピを引き継ぐ
+                    try:
+                        if current_stage in ["main", "sub", "soup"]:
+                            new_session.current_stage = current_stage
+                            self.logger.info(f"✅ [AGENT] Copied current_stage='{current_stage}' to new session")
+                    except Exception:
+                        pass
+                    try:
+                        # used_ingredients（主菜→副菜、などの除外に必要）
+                        if hasattr(old_session, 'used_ingredients'):
+                            new_session.used_ingredients = list(old_session.used_ingredients or [])
+                            self.logger.info(f"✅ [AGENT] Copied used_ingredients count={len(new_session.used_ingredients)}")
+                    except Exception:
+                        pass
+                    try:
+                        # 参考: 既に選択済みのレシピも引き継いでおく（将来の利用を想定）
+                        if hasattr(old_session, 'selected_main_dish'):
+                            new_session.selected_main_dish = old_session.selected_main_dish
+                        if hasattr(old_session, 'selected_sub_dish'):
+                            new_session.selected_sub_dish = old_session.selected_sub_dish
+                        if hasattr(old_session, 'selected_soup'):
+                            new_session.selected_soup = old_session.selected_soup
+                    except Exception:
+                        pass
                     
-                    # 提案済みタイトルも新しいセッションにコピー
+                    # 提案済みタイトルも新しいセッションにコピー（カテゴリ別）
                     if proposed_titles:
-                        new_session.add_proposed_recipes("main", proposed_titles)
-                        self.logger.info(f"✅ [AGENT] Copied {len(proposed_titles)} proposed titles to new session")
+                        new_session.add_proposed_recipes(stage_for_titles, proposed_titles)
+                        self.logger.info(f"✅ [AGENT] Copied {len(proposed_titles)} proposed titles to new session under category '{stage_for_titles}'")
                     
                     self.logger.info(f"✅ [AGENT] Copied context from old session to new session")
             
-            # 主要食材が取得できたか確認
-            if not main_ingredient:
-                # 新しいセッションから取得を試みる
+            # 現在の段階が未取得なら新しいセッションから補完
+            if not current_stage:
                 session = await self.session_service.get_session(sse_session_id, user_id)
                 if session:
-                    main_ingredient = session.get_context("main_ingredient")
-                
+                    try:
+                        current_stage = session.get_current_stage()
+                    except Exception:
+                        current_stage = None
+            if current_stage not in ["main", "sub", "soup"]:
+                current_stage = "main"
+
+            # 現在段階に応じた追加提案リクエスト文言を生成
+            if current_stage == "main":
+                # 主菜の追加提案（主要食材があれば付与）
                 if not main_ingredient:
-                    self.logger.warning(f"⚠️ [AGENT] main_ingredient not found, using default request")
-                    additional_request = "主菜をもう5件提案して"
-                else:
+                    # 新しいセッションから取得を試みる
+                    session = await self.session_service.get_session(sse_session_id, user_id)
+                    if session:
+                        main_ingredient = session.get_context("main_ingredient")
+                if main_ingredient:
                     additional_request = f"{main_ingredient}の主菜をもう5件提案して"
+                else:
+                    additional_request = "主菜をもう5件提案して"
+            elif current_stage == "sub":
+                # 副菜の追加提案（主菜で使っていない食材で副菜）
+                # 使い回しのため在庫情報や使用済み食材はセッション側で利用される
+                additional_request = "主菜で使っていない食材で副菜をもう5件提案して"
+            elif current_stage == "soup":
+                # 汁物の追加提案（和:味噌汁 / それ以外:スープ）
+                session = await self.session_service.get_session(sse_session_id, user_id)
+                menu_category = None
+                if session:
+                    try:
+                        menu_category = session.get_menu_category()
+                    except Exception:
+                        menu_category = None
+                soup_type = "味噌汁" if menu_category == "japanese" else "スープ"
+                additional_request = f"{soup_type}をもう5件提案して"
             else:
-                additional_request = f"{main_ingredient}の主菜をもう5件提案して"
+                # フォールバック
+                additional_request = "主菜をもう5件提案して"
             
             self.logger.info(f"📝 [AGENT] Final additional request: {additional_request}")
             

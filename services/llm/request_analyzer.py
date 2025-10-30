@@ -87,14 +87,17 @@ class RequestAnalyzer:
         if self._is_ambiguity_resume(session_context):
             return "ambiguity_resume"
         
-        # 優先度2: 追加提案
+        # 優先度2: 追加提案（判定順を 汁物→副菜→主菜 に変更して誤判定を抑止）
         if self._is_additional_proposal(request, sse_session_id):
-            if "主菜" in request or "メイン" in request or "main" in request.lower():
-                return "main_additional"
-            elif "副菜" in request or "サブ" in request or "sub" in request.lower():
-                return "sub_additional"
-            elif "汁物" in request or "スープ" in request or "味噌汁" in request or "soup" in request.lower():
+            # 汁物を最優先（説明文に主菜/副菜が含まれていても汁物指定を優先）
+            if ("汁物" in request or "スープ" in request or "味噌汁" in request or "soup" in request.lower()):
                 return "soup_additional"
+            # 副菜を次に優先（「主菜で使っていない食材で副菜…」などのケースに対応）
+            elif ("副菜" in request or "サブ" in request or "sub" in request.lower()):
+                return "sub_additional"
+            # 最後に主菜
+            elif ("主菜" in request or "メイン" in request or "main" in request.lower()):
+                return "main_additional"
         
         # 優先度3: カテゴリ提案（初回）
         # 注意: 説明文中の「主菜・副菜」などに反応しないよう、汁物・副菜を優先的にチェック

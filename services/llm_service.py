@@ -96,6 +96,32 @@ class LLMService:
             
             # 4. タスク形式に変換
             converted_tasks = self.response_processor.convert_to_task_format(tasks, user_id)
+
+            # 5. 重要: パターンに基づきカテゴリ等を強制整合（LLMの記述ぶれ対策）
+            try:
+                desired_category = analysis_result.get("params", {}).get("category")
+                if desired_category in {"main", "sub", "soup"}:
+                    for t in converted_tasks:
+                        service = (t.get("service") or "").lower()
+                        method = (t.get("method") or "").lower()
+                        params = t.get("parameters") or {}
+
+                        # recipe_service.generate_proposals の category を強制上書き
+                        if service == "recipe_service" and method == "generate_proposals":
+                            params["category"] = desired_category
+                            t["parameters"] = params
+
+                        # history_service.history_get_recent_titles の category を強制上書き
+                        if service == "history_service" and method == "history_get_recent_titles":
+                            params["category"] = desired_category
+                            t["parameters"] = params
+
+                        # session_service.session_get_proposed_titles の category を強制上書き
+                        if service == "session_service" and method == "session_get_proposed_titles":
+                            params["category"] = desired_category
+                            t["parameters"] = params
+            except Exception as e:
+                self.logger.warning(f"⚠️ [LLMService] Failed to enforce category from analysis_result: {e}")
             
             # 生成されたタスクの詳細をログ出力
             self.logger.info(f"✅ [LLMService] Tasks decomposed successfully: {len(converted_tasks)} tasks")
