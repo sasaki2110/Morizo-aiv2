@@ -219,12 +219,22 @@ class ResponseProcessor:
                 response_parts.extend(self.formatters.format_inventory_delete(data))
                 
             elif service_method == "recipe_service.generate_menu_plan":
-                # LLM献立提案は表示しない（Web検索結果のみ表示）
-                pass
+                # LLM献立提案を表示（斬新な提案）
+                try:
+                    llm_menu = data.get("data", data)
+                    if isinstance(llm_menu, dict):
+                        response_parts.extend(self.formatters.format_llm_menu(llm_menu))
+                except Exception as e:
+                    self.logger.error(f"❌ [ResponseProcessor] Failed to format LLM menu: {e}")
                 
             elif service_method == "recipe_service.search_menu_from_rag":
-                # RAG献立提案は表示しない（Web検索結果のみ表示）
-                pass
+                # RAG献立提案を表示（伝統的な提案）
+                try:
+                    rag_menu = data.get("data", data)
+                    if isinstance(rag_menu, dict):
+                        response_parts.extend(self.formatters.format_rag_menu(rag_menu))
+                except Exception as e:
+                    self.logger.error(f"❌ [ResponseProcessor] Failed to format RAG menu: {e}")
                 
             elif service_method == "recipe_service.search_recipes_from_web":
                 # task4完了時にtask3とtask4の結果を統合して選択UIを表示
@@ -319,25 +329,25 @@ class ResponseProcessor:
                     }
                 else:
                     # task3の結果が取得できない場合
-                    # デバッグ: results辞書の内容を確認
-                    self.logger.error(f"❌ [ResponseProcessor] Task3 result not found")
-                    self.logger.error(f"🔍 [ResponseProcessor] Available task keys in results: {list(results.keys()) if results else 'results is None or empty'}")
-                    
-                    # task3_resultが取得できない理由をログ出力
-                    if results:
-                        for task_key, task_data in results.items():
-                            self.logger.info(f"🔍 [ResponseProcessor] Task key: {task_key}, success: {task_data.get('success')}, has result: {'result' in task_data}")
-                            if task_key == "task3":
-                                task_data_result = task_data.get("result", {})
-                                self.logger.info(f"🔍 [ResponseProcessor] Task3 result structure: success={task_data_result.get('success')}, has_data={'data' in task_data_result}, data_keys={list(task_data_result.get('data', {}).keys()) if isinstance(task_data_result.get('data'), dict) else 'data is not dict'}")
-                    
-                    # 献立提案の場合のみMenu data形式の出力を生成
+                    # 献立提案ではtask3（候補生成）が無い構成もあるため、エラーにしない
                     if is_menu_scenario:
-                        response_parts.extend(self.formatters.format_web_recipes(data))
+                        self.logger.info(f"ℹ️ [ResponseProcessor] Task3 result not found (menu scenario). Generating menu JSON only to avoid duplicate text.")
+                        if results:
+                            self.logger.debug(f"🔍 [ResponseProcessor] Available task keys in results: {list(results.keys())}")
+                        # 献立提案ではテキスト重複を避けるため、Web整形テキストは追加しない
+                        # （generate_menu_plan/search_menu_from_rag で既に表示済み）
                         menu_data = self.menu_generator.generate_menu_data_json(data)
                     else:
-                        # 副菜・汁物提案の場合、task3の結果が取得できないのは致命的な問題
-                        # しかし、まずは原因を特定するため、エラーログを出力
+                        # デバッグ: results辞書の内容を確認
+                        self.logger.error(f"❌ [ResponseProcessor] Task3 result not found")
+                        self.logger.error(f"🔍 [ResponseProcessor] Available task keys in results: {list(results.keys()) if results else 'results is None or empty'}")
+                        if results:
+                            for task_key, task_data in results.items():
+                                self.logger.info(f"🔍 [ResponseProcessor] Task key: {task_key}, success: {task_data.get('success')}, has result: {'result' in task_data}")
+                                if task_key == "task3":
+                                    task_data_result = task_data.get("result", {})
+                                    self.logger.info(f"🔍 [ResponseProcessor] Task3 result structure: success={task_data_result.get('success')}, has_data={'data' in task_data_result}, data_keys={list(task_data_result.get('data', {}).keys()) if isinstance(task_data_result.get('data'), dict) else 'data is not dict'}")
+                        # 副菜・汁物提案では致命的
                         self.logger.error(f"❌ [ResponseProcessor] FATAL: Task3 result not found for category proposal")
                         response_parts.append("レシピ提案の結果を取得できませんでした。")
                 
