@@ -147,7 +147,7 @@
 
 ### **今後の拡張**
 ✅ **Phase 3**: 副菜・汁物の段階的選択（[plan_Phase_3.md](./plan_Phase_3.md)）
-🔜 **Phase 4**: タスクチェーンのロールバック（plan_Phase_4.md 作成が必要）  
+⏸️ **Phase 4**: タスクチェーンのロールバック（いったんクローズ。詳細は [plan_Phase_4.md](./plan_Phase_4.md) の「現時点の状態とクローズメモ」を参照）  
 🔜 **Phase 5**: 履歴管理（plan_Phase_5.md 作成が必要）
 
 ## Phase 3: 副菜・汁物の段階的選択

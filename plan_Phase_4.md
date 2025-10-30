@@ -89,3 +89,31 @@ Phase 3で実装した段階的選択システム（主菜→副菜→汁物）�
 
 詳しい技術的な実装については、[plan_Phase_4A.md](./plan_Phase_4A.md)と[plan_Phase_4B.md](./plan_Phase_4B.md)を参照してください。
 
+
+## 現時点の状態とクローズメモ（2025-10-30）
+
+本Phase（ロールバック機能）は、バックエンド要件は概ね達成、一方でフロントのSSE完了後UI差し替えに未解決課題が残ったため、いったんクローズします。後日、UI課題のみを独立タスクとして再開します。
+
+### 完了（確認済み）
+- ロールバック（1段階戻し）実装と状態整合: `current_stage` と選択履歴/使用食材の巻き戻しが正しく機能
+- main_ingredient の保全/復元: ロールバック後も初回と同一の主要食材で主菜5件を再生成
+- `next_stage_request` の保存と自動取得: ロールバック確定後に自動で次段階の提案を起動
+
+### 未解決（不具合6）
+- 事象: SSEで`type: "complete"`受信後、「処理が完了しました！」は表示されるが、主菜の選択UI（requires_selection/candidates）が表示されない場合がある。
+- 状態: バックエンドは完了時に`requires_selection: true` と `candidates(5)`、`current_stage: "main"` を配信済み。
+  - 代表ログ:
+    - `✅ [SSE] Sent complete to session <sse_session_id>`
+    - `📊 [SSE] Menu data included in response: <N> characters`
+    - `🔍 [API] Final response object: {'response': '以下の5件から選択してください:', 'requires_selection': True, 'candidates': [...], 'task_id': 'task4', 'current_stage': 'main', ...}`
+- 想定原因（フロント）: 完了ハンドラで既存UIの置換/追加の分岐が競合時に失敗し、選択UIが差し替わらない残ケース。
+- 再開時の調査観点/検索語:
+  - フロントConsole: `[DEBUG] SSE complete event received` / `[DEBUG] Replacing existing selection message for stage:` / `Streaming message not found; pushing new AI selection message`
+  - バックログ: `Sent complete to session <sse_session_id>` / `Final response object: {'response': '以下の5件から選択してください:', 'requires_selection': True`
+- 対応方針（次回）:
+  1) onCompleteでの差し替えを単純化（同一`sseSessionId`の「最後のAIまたはstreaming」へ強制上書き）。
+  2) 見つからなければ必ず新規AIメッセージを末尾に追加（フォールバック維持）。
+  3) 回帰観点: ロールバック直後/追加提案直後/通常提案の3パターンで、同一`sse_session_id`の終端に選択UIが必ず並ぶこと。
+
+（注）`plan_Phase_4_fixed.md` の内容は本節へ集約します。以降の修正履歴は本ファイルに追記します。
+
