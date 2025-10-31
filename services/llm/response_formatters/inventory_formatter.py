@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """
-ResponseFormatters - レスポンスフォーマット処理
+InventoryFormatter - 在庫フォーマット処理
 
-レスポンスの整形とフォーマット処理を担当
+在庫関連のレスポンスフォーマット処理を担当
 """
 
 from typing import Dict, Any, List
-from config.loggers import GenericLogger
-from .utils import STORAGE_EMOJI_MAP, FOOD_CATEGORY_MAPPING, CATEGORY_EMOJI_MAP
+from .base import BaseFormatter
+from ..utils import FOOD_CATEGORY_MAPPING, CATEGORY_EMOJI_MAP
 
 
-class ResponseFormatters:
-    """レスポンスフォーマット処理クラス"""
+class InventoryFormatter(BaseFormatter):
+    """在庫フォーマット処理クラス"""
     
     def __init__(self):
         """初期化"""
-        self.logger = GenericLogger("service", "llm.response.formatters")
+        super().__init__("service", "llm.response.formatters.inventory")
     
     def format_inventory_list(self, data: Dict, is_menu_scenario: bool = False) -> List[str]:
         """在庫一覧のフォーマット（同一アイテム合算表示・カテゴリ別ソート対応）"""
@@ -165,115 +165,6 @@ class ResponseFormatters:
         
         return display_text
     
-    def format_web_recipes(self, web_data: Any) -> List[str]:
-        """Web検索結果のフォーマット（簡素化版）"""
-        response_parts = []
-        
-        try:
-            # 修正: success判定を追加
-            if isinstance(web_data, dict) and web_data.get("success"):
-                # 成功時: dataからllm_menuとrag_menuを取得
-                data = web_data.get("data", {})
-                
-                # 斬新な提案（LLM）
-                if 'llm_menu' in data:
-                    response_parts.extend(self.format_llm_menu(data['llm_menu']))
-                
-                # 伝統的な提案（RAG）
-                if 'rag_menu' in data:
-                    response_parts.extend(self.format_rag_menu(data['rag_menu']))
-            else:
-                # エラー時またはデータ形式エラー
-                response_parts.append("レシピデータの形式が正しくありません。")
-                
-        except Exception as e:
-            self.logger.error(f"❌ [ResponseFormatters] Error in format_web_recipes: {e}")
-            response_parts.append("レシピデータの処理中にエラーが発生しました。")
-        
-        return response_parts
-    
-    def format_llm_menu(self, llm_menu: Dict[str, Any]) -> List[str]:
-        """LLMメニューのフォーマット"""
-        response_parts = []
-        response_parts.append("🍽️ 斬新な提案")
-        response_parts.append("")
-        
-        # 主菜
-        if 'main_dish' in llm_menu and llm_menu['main_dish']:
-            dish_text = self.format_dish_item(llm_menu['main_dish'], "主菜")
-            response_parts.append(dish_text)
-        
-        # 副菜
-        if 'side_dish' in llm_menu and llm_menu['side_dish']:
-            dish_text = self.format_dish_item(llm_menu['side_dish'], "副菜")
-            response_parts.append(dish_text)
-        
-        # 汁物
-        if 'soup' in llm_menu and llm_menu['soup']:
-            dish_text = self.format_dish_item(llm_menu['soup'], "汁物")
-            response_parts.append(dish_text)
-        else:
-            response_parts.append("汁物:")
-        
-        response_parts.append("")
-        return response_parts
-    
-    def format_rag_menu(self, rag_menu: Dict[str, Any]) -> List[str]:
-        """RAGメニューのフォーマット"""
-        response_parts = []
-        response_parts.append("🍽️ 伝統的な提案")
-        response_parts.append("")
-        
-        # 主菜
-        if 'main_dish' in rag_menu and rag_menu['main_dish']:
-            dish_text = self.format_dish_item(rag_menu['main_dish'], "主菜")
-            response_parts.append(dish_text)
-        
-        # 副菜
-        if 'side_dish' in rag_menu and rag_menu['side_dish']:
-            dish_text = self.format_dish_item(rag_menu['side_dish'], "副菜")
-            response_parts.append(dish_text)
-        
-        # 汁物
-        if 'soup' in rag_menu and rag_menu['soup']:
-            dish_text = self.format_dish_item(rag_menu['soup'], "汁物")
-            response_parts.append(dish_text)
-        else:
-            response_parts.append("汁物:")
-        
-        response_parts.append("")
-        return response_parts
-    
-    def format_dish_item(self, dish_data: Any, dish_type: str) -> str:
-        """料理項目のフォーマット（共通処理）"""
-        if isinstance(dish_data, str):
-            return f"{dish_type}: {dish_data}"
-        elif isinstance(dish_data, dict) and 'title' in dish_data:
-            return f"{dish_type}: {dish_data['title']}"
-        else:
-            return f"{dish_type}:"
-    
-    def format_generic_result(self, service_method: str, data: Any) -> List[str]:
-        """汎用結果のフォーマット"""
-        response_parts = []
-        response_parts.append(f"📊 **{service_method}の結果**")
-        response_parts.append("")  # タイトル後の空行
-        
-        if isinstance(data, list):
-            response_parts.append(f"取得件数: {len(data)}件")
-            for i, item in enumerate(data[:3], 1):  # 上位3件のみ
-                if isinstance(item, dict):
-                    response_parts.append(f"{i}. {item}")
-                else:
-                    response_parts.append(f"{i}. {str(item)[:100]}...")
-        elif isinstance(data, dict):
-            response_parts.append(f"データ: {str(data)[:200]}...")
-        else:
-            response_parts.append(f"結果: {str(data)[:200]}...")
-        
-        response_parts.append("")  # セクション終了後の空行
-        return response_parts
-    
     def format_inventory_add(self, data: Dict) -> List[str]:
         """在庫追加のフォーマット"""
         response_parts = []
@@ -316,6 +207,36 @@ class ResponseFormatters:
             response_parts.append("もう一度お試しください。")
         
         return response_parts
+    
+    def format_inventory_update(self, data: Dict) -> List[str]:
+        """在庫更新のフォーマット"""
+        # 成功判定
+        if isinstance(data, dict) and data.get("success"):
+            return self._format_success_response(data, "更新")
+        else:
+            # エラー時の表示
+            error_msg = data.get("error", "不明なエラー") if isinstance(data, dict) else "不明なエラー"
+            
+            # AMBIGUITY_DETECTEDエラーの特別処理
+            if error_msg == "AMBIGUITY_DETECTED":
+                return self._format_ambiguity_error(data, "更新")
+            else:
+                return self._format_general_error(error_msg, "更新")
+    
+    def format_inventory_delete(self, data: Dict) -> List[str]:
+        """在庫削除のフォーマット"""
+        # 成功判定
+        if isinstance(data, dict) and data.get("success"):
+            return self._format_success_response(data, "削除")
+        else:
+            # エラー時の表示
+            error_msg = data.get("error", "不明なエラー") if isinstance(data, dict) else "不明なエラー"
+            
+            # AMBIGUITY_DETECTEDエラーの特別処理
+            if error_msg == "AMBIGUITY_DETECTED":
+                return self._format_ambiguity_error(data, "削除")
+            else:
+                return self._format_general_error(error_msg, "削除")
     
     def _format_success_response(self, data: Dict, operation_type: str) -> List[str]:
         """成功時の共通フォーマット処理"""
@@ -421,125 +342,3 @@ class ResponseFormatters:
         response_parts.append("もう一度お試しください。")
         return response_parts
 
-    def format_inventory_update(self, data: Dict) -> List[str]:
-        """在庫更新のフォーマット"""
-        # 成功判定
-        if isinstance(data, dict) and data.get("success"):
-            return self._format_success_response(data, "更新")
-        else:
-            # エラー時の表示
-            error_msg = data.get("error", "不明なエラー") if isinstance(data, dict) else "不明なエラー"
-            
-            # AMBIGUITY_DETECTEDエラーの特別処理
-            if error_msg == "AMBIGUITY_DETECTED":
-                return self._format_ambiguity_error(data, "更新")
-            else:
-                return self._format_general_error(error_msg, "更新")
-    
-    def format_inventory_delete(self, data: Dict) -> List[str]:
-        """在庫削除のフォーマット"""
-        # 成功判定
-        if isinstance(data, dict) and data.get("success"):
-            return self._format_success_response(data, "削除")
-        else:
-            # エラー時の表示
-            error_msg = data.get("error", "不明なエラー") if isinstance(data, dict) else "不明なエラー"
-            
-            # AMBIGUITY_DETECTEDエラーの特別処理
-            if error_msg == "AMBIGUITY_DETECTED":
-                return self._format_ambiguity_error(data, "削除")
-            else:
-                return self._format_general_error(error_msg, "削除")
-    
-    def format_main_dish_proposals(self, data: Dict[str, Any]) -> List[str]:
-        """主菜5件提案のフォーマット（主要食材考慮）"""
-        response_parts = []
-        
-        try:
-            if data.get("success"):
-                candidates = data.get("data", {}).get("candidates", [])
-                main_ingredient = data.get("data", {}).get("main_ingredient")
-                llm_count = data.get("data", {}).get("llm_count", 0)
-                rag_count = data.get("data", {}).get("rag_count", 0)
-                
-                # 主要食材の表示
-                if main_ingredient:
-                    response_parts.append(f"🍽️ **主菜の提案（5件）- {main_ingredient}使用**")
-                else:
-                    response_parts.append("🍽️ **主菜の提案（5件）**")
-                response_parts.append("")
-                
-                # LLM提案（最初の2件）
-                if llm_count > 0:
-                    response_parts.append("💡 **斬新な提案（LLM推論）**")
-                    for i, candidate in enumerate(candidates[:llm_count], 1):
-                        title = candidate.get("title", "")
-                        ingredients = ", ".join(candidate.get("ingredients", []))
-                        response_parts.append(f"{i}. {title}")
-                        response_parts.append(f"   使用食材: {ingredients}")
-                        response_parts.append("")
-                
-                # RAG提案（残りの3件）
-                if rag_count > 0:
-                    response_parts.append("📚 **伝統的な提案（RAG検索）**")
-                    start_idx = llm_count
-                    for i, candidate in enumerate(candidates[start_idx:], start_idx + 1):
-                        title = candidate.get("title", "")
-                        ingredients = ", ".join(candidate.get("ingredients", []))
-                        response_parts.append(f"{i}. {title}")
-                        response_parts.append(f"   使用食材: {ingredients}")
-                        response_parts.append("")
-            else:
-                # エラー時の表示
-                error_msg = data.get("error", "不明なエラー")
-                response_parts.append("❌ **主菜提案の取得に失敗しました**")
-                response_parts.append("")
-                response_parts.append(f"エラー: {error_msg}")
-                response_parts.append("")
-                response_parts.append("もう一度お試しください。")
-                
-        except Exception as e:
-            self.logger.error(f"❌ [ResponseFormatters] Error in format_main_dish_proposals: {e}")
-        return response_parts
-    
-    def format_selection_request(self, candidates: list, task_id: str) -> dict:
-        """選択要求レスポンスのフォーマット"""
-        formatted = "以下の5件から選択してください:\n\n"
-        
-        for i, candidate in enumerate(candidates, 1):
-            formatted += f"{i}. {candidate.get('title', '不明なレシピ')}\n"
-            
-            # 食材リスト
-            ingredients = candidate.get('ingredients', [])
-            if ingredients:
-                formatted += f"   食材: {', '.join(ingredients)}\n"
-            
-            # 調理時間
-            cooking_time = candidate.get('cooking_time')
-            if cooking_time:
-                formatted += f"   調理時間: {cooking_time}\n"
-            
-            # カテゴリ
-            category = candidate.get('category')
-            if category:
-                formatted += f"   カテゴリ: {category}\n"
-            
-            formatted += "\n"
-        
-        formatted += "番号を選択してください（1-5）:"
-        
-        return {
-            "message": formatted,
-            "requires_selection": True,
-            "candidates": candidates,
-            "task_id": task_id
-        }
-    
-    def format_selection_result(self, selection: int, task_id: str) -> dict:
-        """選択結果レスポンスのフォーマット"""
-        return {
-            "message": f"選択肢 {selection} を受け付けました。",
-            "success": True,
-            "task_id": task_id,
-            "selection": selection
-        }
