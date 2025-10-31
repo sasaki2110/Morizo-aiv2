@@ -242,8 +242,13 @@ class SelectionHandler:
                     try:
                         if current_stage in ["main", "sub", "soup"]:
                             new_session.current_stage = current_stage
-                            self.logger.info(f"✅ [SELECTION] Copied current_stage='{current_stage}' to new session")
-                    except Exception:
+                            # 設定後の確認（デバッグ用）
+                            actual_stage = new_session.get_current_stage()
+                            self.logger.info(f"✅ [SELECTION] Copied current_stage='{current_stage}' to new session (verified: '{actual_stage}')")
+                            if actual_stage != current_stage:
+                                self.logger.warning(f"⚠️ [SELECTION] current_stage mismatch: expected '{current_stage}', got '{actual_stage}'")
+                    except Exception as e:
+                        self.logger.error(f"❌ [SELECTION] Failed to copy current_stage: {e}")
                         pass
                     try:
                         # used_ingredients（主菜→副菜、などの除外に必要）
