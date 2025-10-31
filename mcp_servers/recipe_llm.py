@@ -133,8 +133,33 @@ class RecipeLLM:
         """LLMレスポンスを解析して献立タイトルを抽出"""
         try:
             import json
+            import re
             
-            # JSON形式のレスポンスを解析
+            # まず、マークダウンコードブロック内のJSONを抽出
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response_content, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(1)
+                menu_data = json.loads(json_str.strip())
+                return {
+                    "main_dish": menu_data.get("main_dish", ""),
+                    "side_dish": menu_data.get("side_dish", ""),
+                    "soup": menu_data.get("soup", ""),
+                    "ingredients_used": menu_data.get("ingredients_used", [])
+                }
+            
+            # マークダウンコードブロックがない場合、直接JSONを探す
+            json_match = re.search(r'\{.*?"main_dish".*?"side_dish".*?"soup".*?\}', response_content, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+                menu_data = json.loads(json_str.strip())
+                return {
+                    "main_dish": menu_data.get("main_dish", ""),
+                    "side_dish": menu_data.get("side_dish", ""),
+                    "soup": menu_data.get("soup", ""),
+                    "ingredients_used": menu_data.get("ingredients_used", [])
+                }
+            
+            # 通常のJSON解析を試行
             menu_data = json.loads(response_content.strip())
             
             return {
@@ -144,32 +169,91 @@ class RecipeLLM:
                 "ingredients_used": menu_data.get("ingredients_used", [])
             }
             
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
             # JSON解析に失敗した場合、テキストから抽出を試行
-            self.logger.warning("⚠️ [LLM] Failed to parse JSON response, attempting text extraction")
+            self.logger.warning(f"⚠️ [LLM] Failed to parse JSON response, attempting text extraction")
+            self.logger.debug(f"🔍 [LLM] Response content (first 500 chars): {response_content[:500]}")
             return self._extract_from_text(response_content)
         except Exception as e:
             self.logger.error(f"❌ [LLM] Failed to parse response: {e}")
+            self.logger.debug(f"🔍 [LLM] Response content (first 500 chars): {response_content[:500]}")
             return {"main_dish": "", "side_dish": "", "soup": "", "ingredients_used": []}
     
     def _extract_from_text(self, text: str) -> Dict[str, Any]:
         """テキストから献立タイトルを抽出（フォールバック）"""
-        # 簡単なテキスト解析（実際の実装ではより高度な解析が必要）
-        lines = text.strip().split('\n')
+        import re
         
         main_dish = ""
         side_dish = ""
         soup = ""
         ingredients = []
         
+        # パターン1: "主菜": "タイトル" 形式（JSONライク）
+        main_match = re.search(r'"main_dish"\s*:\s*"([^"]+)"', text, re.IGNORECASE)
+        if main_match:
+            main_dish = main_match.group(1)
+        
+        side_match = re.search(r'"side_dish"\s*:\s*"([^"]+)"', text, re.IGNORECASE)
+        if side_match:
+            side_dish = side_match.group(1)
+        
+        soup_match = re.search(r'"soup"\s*:\s*"([^"]+)"', text, re.IGNORECASE)
+        if soup_match:
+            soup = soup_match.group(1)
+        
+        # パターン2: 主菜: タイトル 形式（コロン区切り）
+        if not main_dish:
+            main_match = re.search(r'主菜[：:]\s*([^\n]+)', text)
+            if main_match:
+                main_dish = main_match.group(1).strip()
+        
+        if not side_dish:
+            side_match = re.search(r'副菜[：:]\s*([^\n]+)', text)
+            if side_match:
+                side_dish = side_match.group(1).strip()
+        
+        if not soup:
+            soup_match = re.search(r'汁物[：:]\s*([^\n]+)', text)
+            if soup_match:
+                soup = soup_match.group(1).strip()
+        
+        # パターン3: 行ベースの解析（"主菜"という単語を含む行を探す）
+        lines = text.strip().split('\n')
         for line in lines:
             line = line.strip()
-            if "主菜" in line:
-                main_dish = line.replace("主菜:", "").replace("主菜：", "").strip()
-            elif "副菜" in line:
-                side_dish = line.replace("副菜:", "").replace("副菜：", "").strip()
-            elif "汁物" in line:
-                soup = line.replace("汁物:", "").replace("汁物：", "").strip()
+            # 「主菜」を含み、既に見つかっていない場合
+            if "主菜" in line and not main_dish:
+                # コロンやダッシュの後の部分を抽出
+                match = re.search(r'主菜[：:\-]\s*([^\n]+)', line)
+                if match:
+                    main_dish = match.group(1).strip()
+                else:
+                    # コロンがない場合、"主菜"の後の部分を抽出
+                    main_dish = re.sub(r'^.*主菜\s*', '', line).strip()
+            
+            if "副菜" in line and not side_dish:
+                match = re.search(r'副菜[：:\-]\s*([^\n]+)', line)
+                if match:
+                    side_dish = match.group(1).strip()
+                else:
+                    side_dish = re.sub(r'^.*副菜\s*', '', line).strip()
+            
+            if "汁物" in line and not soup:
+                match = re.search(r'汁物[：:\-]\s*([^\n]+)', line)
+                if match:
+                    soup = match.group(1).strip()
+                else:
+                    soup = re.sub(r'^.*汁物\s*', '', line).strip()
+        
+        # ingredients_usedの抽出を試行
+        ingredients_match = re.search(r'"ingredients_used"\s*:\s*\[(.*?)\]', text, re.DOTALL)
+        if ingredients_match:
+            ingredients_str = ingredients_match.group(1)
+            # 各食材を抽出
+            ingredient_matches = re.findall(r'"([^"]+)"', ingredients_str)
+            ingredients = ingredient_matches
+        
+        self.logger.info(f"📝 [LLM] Extracted from text - main_dish: '{main_dish}', side_dish: '{side_dish}', soup: '{soup}'")
         
         return {
             "main_dish": main_dish,
