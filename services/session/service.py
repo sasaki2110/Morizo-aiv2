@@ -6,15 +6,37 @@ SessionService - セッション管理サービス
 """
 
 from typing import Dict, Any, Optional
-from datetime import datetime
-import uuid
 from config.loggers import GenericLogger
 
 from .models import Session
+from .crud_manager import SessionCRUDManager
+from .confirmation_manager import ConfirmationManager
+from .proposal_manager import ProposalManager
+from .candidate_manager import CandidateManager
+from .context_manager import ContextManager
+from .stage_manager import StageManager
 
+
+# ============================================================================
+# SessionService - セッション管理サービス（シングルトン）
+# ============================================================================
 
 class SessionService:
     """セッション管理サービス（シングルトン）"""
+    
+    # ============================================================================
+    # グループ1: シングルトン管理と初期化
+    # ============================================================================
+    # 
+    # このセクションの責任:
+    # - シングルトンパターンの実装（_instance, __new__）
+    # - クラスレベルの共有ストレージ（_user_sessions）
+    # - インスタンス初期化（logger, user_sessions参照の設定）
+    # 
+    # 将来的な分割時の考慮事項:
+    # - シングルトンパターンは維持が必要
+    # - _user_sessionsは全機能で共有されるため、分割時も共通アクセス手段が必要
+    # ============================================================================
     
     _instance = None
     _user_sessions: Dict[str, Dict[str, Session]] = {}
@@ -30,6 +52,31 @@ class SessionService:
         if not hasattr(self, 'logger'):
             self.logger = GenericLogger("service", "session")
             self.user_sessions = self._user_sessions
+            
+            # マネージャーの初期化（コンポジション）
+            self.crud = SessionCRUDManager(self)
+            self.confirmation = ConfirmationManager(self)
+            self.proposal = ProposalManager(self)
+            self.candidate = CandidateManager(self)
+            self.context = ContextManager(self)
+            self.stage = StageManager(self)
+    
+    # ============================================================================
+    # グループ2: 基本CRUD操作
+    # ============================================================================
+    # 
+    # このセクションの責任:
+    # - セッションの作成（create_session）
+    # - セッションの取得（get_session）
+    # - セッションの更新（update_session）
+    # - セッションの削除（delete_session）
+    # - 期限切れセッションのクリーンアップ（cleanup_expired_sessions）
+    # 
+    # 将来的な分割時の考慮事項:
+    # - user_sessionsへの直接アクセスが必要
+    # - 他のグループ（確認状態、提案レシピ等）から使用される基盤機能
+    # - 分割する場合はSessionCRUDManager等として独立させることが可能
+    # ============================================================================
     
     async def create_session(
         self, 
@@ -46,32 +93,7 @@ class SessionService:
         Returns:
             作成されたセッション
         """
-        try:
-            self.logger.info(f"🔧 [SessionService] Creating session for user: {user_id}")
-            
-            # セッションIDを生成または指定されたIDを使用
-            if session_id is None:
-                session_id = str(uuid.uuid4())
-            
-            # セッションを作成（user_idがNoneの場合は"system"を使用）
-            actual_user_id = user_id if user_id else "system"
-            session = Session(
-                session_id=session_id,
-                user_id=actual_user_id
-            )
-            
-            # ユーザー別セッション管理
-            if user_id not in self.user_sessions:
-                self.user_sessions[user_id] = {}
-            self.user_sessions[user_id][session_id] = session
-            
-            self.logger.info(f"✅ [SessionService] Session created successfully: {session_id}")
-            
-            return session
-            
-        except Exception as e:
-            self.logger.error(f"❌ [SessionService] Error in create_session: {e}")
-            raise
+        return await self.crud.create_session(user_id, session_id)
     
     async def get_session(
         self, 
@@ -88,34 +110,7 @@ class SessionService:
         Returns:
             セッション（存在しない場合はNone）
         """
-        try:
-            self.logger.info(f"🔧 [SessionService] Getting session: {session_id}")
-            
-            session = None
-            
-            if user_id:
-                # 特定ユーザーのセッションを検索
-                user_sessions = self.user_sessions.get(user_id, {})
-                session = user_sessions.get(session_id)
-            else:
-                # 全ユーザーからセッションを検索
-                for user_sessions in self.user_sessions.values():
-                    if session_id in user_sessions:
-                        session = user_sessions[session_id]
-                        break
-            
-            if session:
-                # 最終アクセス時刻の更新
-                session.last_accessed = datetime.now()
-                self.logger.info(f"✅ [SessionService] Session retrieved successfully")
-            else:
-                self.logger.warning(f"⚠️ [SessionService] Session not found: {session_id}")
-            
-            return session
-            
-        except Exception as e:
-            self.logger.error(f"❌ [SessionService] Error in get_session: {e}")
-            return None
+        return await self.crud.get_session(session_id, user_id)
     
     async def update_session(
         self, 
@@ -132,31 +127,7 @@ class SessionService:
         Returns:
             更新成功の可否
         """
-        try:
-            self.logger.info(f"🔧 [SessionService] Updating session: {session_id}")
-            
-            # 全ユーザーからセッションを検索
-            session = None
-            for user_sessions in self.user_sessions.values():
-                if session_id in user_sessions:
-                    session = user_sessions[session_id]
-                    break
-            
-            if not session:
-                self.logger.warning(f"⚠️ [SessionService] Session not found for update: {session_id}")
-                return False
-            
-            # セッションデータを更新
-            session.data.update(updates)
-            session.last_accessed = datetime.now()
-            
-            self.logger.info(f"✅ [SessionService] Session updated successfully")
-            
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"❌ [SessionService] Error in update_session: {e}")
-            return False
+        return await self.crud.update_session(session_id, updates)
     
     async def delete_session(
         self, 
@@ -171,27 +142,7 @@ class SessionService:
         Returns:
             削除成功の可否
         """
-        try:
-            self.logger.info(f"🔧 [SessionService] Deleting session: {session_id}")
-            
-            # 全ユーザーからセッションを検索して削除
-            deleted = False
-            for user_id, user_sessions in self.user_sessions.items():
-                if session_id in user_sessions:
-                    del user_sessions[session_id]
-                    deleted = True
-                    break
-            
-            if deleted:
-                self.logger.info(f"✅ [SessionService] Session deleted successfully")
-                return True
-            else:
-                self.logger.warning(f"⚠️ [SessionService] Session not found for deletion: {session_id}")
-                return False
-            
-        except Exception as e:
-            self.logger.error(f"❌ [SessionService] Error in delete_session: {e}")
-            return False
+        return await self.crud.delete_session(session_id)
     
     async def cleanup_expired_sessions(
         self, 
@@ -206,88 +157,35 @@ class SessionService:
         Returns:
             削除されたセッション数
         """
-        try:
-            self.logger.info(f"🔧 [SessionService] Cleaning up expired sessions (max_age: {max_age_hours}h)")
-            
-            from datetime import timedelta
-            cutoff_time = datetime.now() - timedelta(hours=max_age_hours)
-            
-            expired_sessions = []
-            for user_id, user_sessions in self.user_sessions.items():
-                for session_id, session in user_sessions.items():
-                    if session.last_accessed < cutoff_time:
-                        expired_sessions.append((user_id, session_id))
-            
-            for user_id, session_id in expired_sessions:
-                del self.user_sessions[user_id][session_id]
-            
-            self.logger.info(f"✅ [SessionService] Cleaned up {len(expired_sessions)} expired sessions")
-            
-            return len(expired_sessions)
-            
-        except Exception as e:
-            self.logger.error(f"❌ [SessionService] Error in cleanup_expired_sessions: {e}")
-            return 0
+        return await self.crud.cleanup_expired_sessions(max_age_hours)
     
-    async def _call_session_method(
-        self,
-        sse_session_id: str,
-        method_name: str,
-        session_method,
-        default_return,
-        log_success_message: Optional[str] = None
-    ) -> Any:
-        """セッションメソッドを呼び出す共通ヘルパー（戻り値あり）
-        
-        Args:
-            sse_session_id: SSEセッションID
-            method_name: メソッド名（ログ用）
-            session_method: 呼び出すSessionオブジェクトのメソッド（callable）
-            default_return: セッションが存在しない場合のデフォルト戻り値
-            log_success_message: 成功ログメッセージ（Noneの場合は自動生成）
-        
-        Returns:
-            Any: メソッドの戻り値またはデフォルト値
-        """
-        try:
-            session = await self.get_session(sse_session_id, user_id=None)
-            if session:
-                result = session_method(session)
-                if log_success_message:
-                    self.logger.info(log_success_message)
-                else:
-                    self.logger.info(f"✅ [SessionService] {method_name} completed successfully")
-                return result
-            return default_return
-        except Exception as e:
-            self.logger.error(f"❌ [SessionService] Error in {method_name}: {e}")
-            return default_return
+    # ============================================================================
+    # グループ3: プライベートヘルパーメソッド
+    # ============================================================================
+    # 
+    # このセクションの責任:
+    # - セッションメソッド呼び出しの共通処理（helpers.pyに移動済み）
+    # - エラーハンドリングとロギングの統一
+    # 
+    # 将来的な分割時の考慮事項:
+    # - これらのヘルパーは複数の機能グループから使用されている
+    # - helpers.pyに移動済み（call_session_method, call_session_void_method）
+    # ============================================================================
     
-    async def _call_session_void_method(
-        self,
-        sse_session_id: str,
-        method_name: str,
-        session_method,
-        log_success_message: Optional[str] = None
-    ) -> None:
-        """セッションメソッドを呼び出す共通ヘルパー（戻り値なし）
-        
-        Args:
-            sse_session_id: SSEセッションID
-            method_name: メソッド名（ログ用）
-            session_method: 呼び出すSessionオブジェクトのメソッド（callable）
-            log_success_message: 成功ログメッセージ（Noneの場合は自動生成）
-        """
-        try:
-            session = await self.get_session(sse_session_id, user_id=None)
-            if session:
-                session_method(session)
-                if log_success_message:
-                    self.logger.info(log_success_message)
-                else:
-                    self.logger.info(f"✅ [SessionService] {method_name} completed successfully")
-        except Exception as e:
-            self.logger.error(f"❌ [SessionService] Error in {method_name}: {e}")
+    # ============================================================================
+    # グループ4: 確認状態管理
+    # ============================================================================
+    # 
+    # このセクションの責任:
+    # - 曖昧性解決の状態を保存（save_confirmation_state）
+    # - 曖昧性解決の状態を取得（get_confirmation_state）
+    # - 曖昧性解決の状態をクリア（clear_confirmation_state）
+    # 
+    # 将来的な分割時の考慮事項:
+    # - 分割する場合はConfirmationManager等として独立させることが可能
+    # - 依存関係: get_session, create_session（グループ2）を使用
+    # - session.data['confirmation_state']を直接操作
+    # ============================================================================
     
     async def save_confirmation_state(
         self,
@@ -309,32 +207,7 @@ class SessionService:
                 'created_at': datetime
             }
         """
-        try:
-            self.logger.info(f"💾 [SessionService] Saving confirmation state for session: {sse_session_id}")
-            
-            # セッションを取得または作成
-            session = await self.get_session(sse_session_id)
-            if not session:
-                session = Session(sse_session_id, user_id)
-                # ユーザー別セッション管理
-                if user_id not in self.user_sessions:
-                    self.user_sessions[user_id] = {}
-                self.user_sessions[user_id][sse_session_id] = session
-                self.logger.info(f"📝 [SessionService] Created new session for confirmation state")
-            
-            # 曖昧性解決状態を保存
-            session.data['confirmation_state'] = state_data
-            session.data['state_type'] = 'awaiting_confirmation'
-            session.last_accessed = datetime.now()
-            
-            # デバッグログ: 保存された状態の詳細
-            self.logger.info(f"🔍 [SessionService] Saved state keys: {list(state_data.keys())}")
-            self.logger.info(f"🔍 [SessionService] Session data keys: {list(session.data.keys())}")
-            self.logger.info(f"✅ [SessionService] Confirmation state saved successfully")
-            
-        except Exception as e:
-            self.logger.error(f"❌ [SessionService] Error in save_confirmation_state: {e}")
-            raise
+        return await self.confirmation.save_confirmation_state(sse_session_id, user_id, state_data)
     
     async def get_confirmation_state(
         self,
@@ -349,28 +222,7 @@ class SessionService:
         Returns:
             保存された状態データ（存在しない場合はNone）
         """
-        try:
-            self.logger.info(f"🔍 [SessionService] Getting confirmation state for session: {sse_session_id}")
-            
-            session = await self.get_session(sse_session_id)
-            if not session:
-                self.logger.warning(f"⚠️ [SessionService] Session not found: {sse_session_id}")
-                return None
-            
-            if 'confirmation_state' not in session.data:
-                self.logger.warning(f"⚠️ [SessionService] No confirmation_state in session data for: {sse_session_id}")
-                self.logger.info(f"🔍 [SessionService] Available session data keys: {list(session.data.keys())}")
-                return None
-            
-            state_data = session.data.get('confirmation_state')
-            self.logger.info(f"🔍 [SessionService] Retrieved state keys: {list(state_data.keys()) if state_data else 'None'}")
-            self.logger.info(f"✅ [SessionService] Confirmation state retrieved successfully")
-            
-            return state_data
-            
-        except Exception as e:
-            self.logger.error(f"❌ [SessionService] Error in get_confirmation_state: {e}")
-            return None
+        return await self.confirmation.get_confirmation_state(sse_session_id)
     
     async def clear_confirmation_state(
         self,
@@ -382,21 +234,21 @@ class SessionService:
         Args:
             sse_session_id: SSEセッションID
         """
-        try:
-            self.logger.info(f"🧹 [SessionService] Clearing confirmation state for session: {sse_session_id}")
-            
-            session = await self.get_session(sse_session_id)
-            if session and 'confirmation_state' in session.data:
-                del session.data['confirmation_state']
-                if 'state_type' in session.data:
-                    del session.data['state_type']
-                session.last_accessed = datetime.now()
-                self.logger.info(f"✅ [SessionService] Confirmation state cleared successfully")
-            else:
-                self.logger.warning(f"⚠️ [SessionService] No confirmation state to clear for session: {sse_session_id}")
-            
-        except Exception as e:
-            self.logger.error(f"❌ [SessionService] Error in clear_confirmation_state: {e}")
+        return await self.confirmation.clear_confirmation_state(sse_session_id)
+    
+    # ============================================================================
+    # グループ5: 提案レシピ管理
+    # ============================================================================
+    # 
+    # このセクションの責任:
+    # - 提案済みレシピをセッションに追加（add_proposed_recipes）
+    # - 提案済みレシピをセッションから取得（get_proposed_recipes）
+    # 
+    # 将来的な分割時の考慮事項:
+    # - 分割する場合はProposalManager等として独立させることが可能
+    # - 依存関係: _call_session_method, _call_session_void_method（グループ3）を使用
+    # - Sessionオブジェクトのadd_proposed_recipes, get_proposed_recipesメソッドを使用
+    # ============================================================================
     
     async def add_proposed_recipes(
         self, 
@@ -411,12 +263,7 @@ class SessionService:
             category: カテゴリ（"main", "sub", "soup"）
             titles: 提案済みタイトルのリスト
         """
-        await self._call_session_void_method(
-            sse_session_id,
-            "add_proposed_recipes",
-            lambda s: s.add_proposed_recipes(category, titles),
-            f"✅ [SessionService] Added {len(titles)} proposed {category} recipes to session"
-        )
+        return await self.proposal.add_proposed_recipes(sse_session_id, category, titles)
     
     async def get_proposed_recipes(
         self, 
@@ -432,12 +279,21 @@ class SessionService:
         Returns:
             list: 提案済みタイトルのリスト
         """
-        return await self._call_session_method(
-            sse_session_id,
-            "get_proposed_recipes",
-            lambda s: s.get_proposed_recipes(category),
-            []
-        )
+        return await self.proposal.get_proposed_recipes(sse_session_id, category)
+    
+    # ============================================================================
+    # グループ6: 候補情報管理
+    # ============================================================================
+    # 
+    # このセクションの責任:
+    # - 候補情報をセッションに保存（set_candidates）
+    # - 候補情報をセッションから取得（get_candidates）
+    # 
+    # 将来的な分割時の考慮事項:
+    # - 分割する場合はCandidateManager等として独立させることが可能
+    # - 依存関係: _call_session_method, _call_session_void_method（グループ3）を使用
+    # - Sessionオブジェクトのset_candidates, get_candidatesメソッドを使用
+    # ============================================================================
     
     async def set_candidates(
         self,
@@ -452,12 +308,7 @@ class SessionService:
             category: カテゴリ（"main", "sub", "soup"）
             candidates: 候補情報のリスト
         """
-        await self._call_session_void_method(
-            sse_session_id,
-            "set_candidates",
-            lambda s: s.set_candidates(category, candidates),
-            f"✅ [SessionService] Set {len(candidates)} {category} candidates to session"
-        )
+        return await self.candidate.set_candidates(sse_session_id, category, candidates)
     
     async def get_candidates(
         self,
@@ -473,12 +324,21 @@ class SessionService:
         Returns:
             list: 候補情報のリスト
         """
-        return await self._call_session_method(
-            sse_session_id,
-            "get_candidates",
-            lambda s: s.get_candidates(category),
-            []
-        )
+        return await self.candidate.get_candidates(sse_session_id, category)
+    
+    # ============================================================================
+    # グループ7: セッションコンテキスト
+    # ============================================================================
+    # 
+    # このセクションの責任:
+    # - セッションコンテキストを設定（set_session_context）
+    # - セッションコンテキストを取得（get_session_context）
+    # 
+    # 将来的な分割時の考慮事項:
+    # - 分割する場合はContextManager等として独立させることが可能
+    # - 依存関係: _call_session_method, _call_session_void_method（グループ3）を使用
+    # - Sessionオブジェクトのset_context, get_contextメソッドを使用
+    # ============================================================================
     
     async def set_session_context(
         self, 
@@ -493,12 +353,7 @@ class SessionService:
             key: コンテキストキー
             value: 値
         """
-        await self._call_session_void_method(
-            sse_session_id,
-            "set_session_context",
-            lambda s: s.set_context(key, value),
-            f"✅ [SessionService] Set session context: {key}"
-        )
+        return await self.context.set_session_context(sse_session_id, key, value)
     
     async def get_session_context(
         self, 
@@ -516,14 +371,25 @@ class SessionService:
         Returns:
             Any: コンテキスト値
         """
-        return await self._call_session_method(
-            sse_session_id,
-            "get_session_context",
-            lambda s: s.get_context(key, default),
-            default
-        )
+        return await self.context.get_session_context(sse_session_id, key, default)
     
-    # Phase 2.5D: 段階管理メソッド
+    # ============================================================================
+    # グループ8: 段階管理
+    # ============================================================================
+    # 
+    # このセクションの責任:
+    # - 現在の段階を取得（get_current_stage）
+    # - 選択したレシピを保存（set_selected_recipe）
+    # - 選択済みレシピを取得（get_selected_recipes）
+    # - 使用済み食材を取得（get_used_ingredients）
+    # - 献立カテゴリを取得（get_menu_category）
+    # 
+    # 将来的な分割時の考慮事項:
+    # - 分割する場合はStageManager等として独立させることが可能
+    # - 依存関係: _call_session_method, _call_session_void_method（グループ3）を使用
+    # - Sessionオブジェクトの段階管理メソッド群を使用
+    # ============================================================================
+    
     async def get_current_stage(self, sse_session_id: str) -> str:
         """現在の段階を取得
         
@@ -533,12 +399,7 @@ class SessionService:
         Returns:
             str: 現在の段階
         """
-        return await self._call_session_method(
-            sse_session_id,
-            "get_current_stage",
-            lambda s: s.get_current_stage(),
-            "main"
-        )
+        return await self.stage.get_current_stage(sse_session_id)
     
     async def set_selected_recipe(
         self, 
@@ -553,12 +414,7 @@ class SessionService:
             category: カテゴリ（"main", "sub", "soup"）
             recipe: レシピ情報
         """
-        await self._call_session_void_method(
-            sse_session_id,
-            "set_selected_recipe",
-            lambda s: s.set_selected_recipe(category, recipe),
-            f"✅ [SessionService] Recipe selected for {category}"
-        )
+        return await self.stage.set_selected_recipe(sse_session_id, category, recipe)
     
     async def get_selected_recipes(self, sse_session_id: str) -> Dict[str, Any]:
         """選択済みレシピを取得
@@ -569,12 +425,7 @@ class SessionService:
         Returns:
             Dict[str, Any]: 選択済みレシピの辞書
         """
-        return await self._call_session_method(
-            sse_session_id,
-            "get_selected_recipes",
-            lambda s: s.get_selected_recipes(),
-            {"main": None, "sub": None, "soup": None}
-        )
+        return await self.stage.get_selected_recipes(sse_session_id)
     
     async def get_used_ingredients(self, sse_session_id: str) -> list:
         """使用済み食材を取得
@@ -585,12 +436,7 @@ class SessionService:
         Returns:
             list: 使用済み食材のリスト
         """
-        return await self._call_session_method(
-            sse_session_id,
-            "get_used_ingredients",
-            lambda s: s.get_used_ingredients(),
-            []
-        )
+        return await self.stage.get_used_ingredients(sse_session_id)
     
     async def get_menu_category(self, sse_session_id: str) -> str:
         """献立カテゴリを取得
@@ -601,13 +447,21 @@ class SessionService:
         Returns:
             str: 献立カテゴリ（"japanese", "western", "chinese"）
         """
-        return await self._call_session_method(
-            sse_session_id,
-            "get_menu_category",
-            lambda s: s.get_menu_category(),
-            "japanese"
-        )
+        return await self.stage.get_menu_category(sse_session_id)
 
+
+# ============================================================================
+# グループ9: シングルトンインスタンス作成
+# ============================================================================
+# 
+# このセクションの責任:
+# - SessionServiceのシングルトンインスタンスを作成
+# - グローバルアクセス用のsession_service変数を提供
+# 
+# 将来的な分割時の考慮事項:
+# - 分割後もシングルトンインスタンスの提供は維持
+# - 後方互換性のためsession_service変数は必須
+# ============================================================================
 
 # シングルトンインスタンスを作成
 session_service = SessionService()
