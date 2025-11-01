@@ -98,3 +98,24 @@ class MenuSaveResponse(BaseModel):
     message: str = Field(..., description="レスポンスメッセージ")
     saved_recipes: List[SavedMenuRecipe] = Field(..., description="保存されたレシピのリスト")
     total_saved: int = Field(..., description="保存されたレシピ数")
+
+
+class HistoryRecipe(BaseModel):
+    """履歴レシピ情報"""
+    category: Optional[str] = Field(None, description="カテゴリ（main, sub, soup, None）")
+    title: str = Field(..., description="レシピのタイトル")
+    source: str = Field(..., description="レシピの出典（web, rag等）")
+    url: Optional[str] = Field(None, description="レシピのURL")
+    history_id: str = Field(..., description="レシピ履歴のID")
+
+
+class HistoryEntry(BaseModel):
+    """履歴エントリ（日付単位）"""
+    date: str = Field(..., description="日付（YYYY-MM-DD形式）")
+    recipes: List[HistoryRecipe] = Field(..., description="その日のレシピリスト")
+
+
+class MenuHistoryResponse(BaseModel):
+    """献立履歴レスポンス"""
+    success: bool = Field(..., description="処理成功フラグ")
+    data: List[HistoryEntry] = Field(..., description="日付別の履歴エントリリスト")

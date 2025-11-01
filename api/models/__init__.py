@@ -6,7 +6,7 @@ API層 - データモデル
 """
 
 from .requests import ChatRequest, ProgressUpdate, InventoryRequest, HealthRequest, RecipeAdoptionRequest, RecipeItem, MenuSaveRequest
-from .responses import ChatResponse, HealthResponse, InventoryResponse, ErrorResponse, SSEEvent, RecipeAdoptionResponse, SavedRecipe, SavedMenuRecipe, MenuSaveResponse
+from .responses import ChatResponse, HealthResponse, InventoryResponse, ErrorResponse, SSEEvent, RecipeAdoptionResponse, SavedRecipe, SavedMenuRecipe, MenuSaveResponse, HistoryRecipe, HistoryEntry, MenuHistoryResponse
 
 __all__ = [
     'ChatRequest',
@@ -24,5 +24,8 @@ __all__ = [
     'RecipeAdoptionResponse',
     'SavedRecipe',
     'SavedMenuRecipe',
-    'MenuSaveResponse'
+    'MenuSaveResponse',
+    'HistoryRecipe',
+    'HistoryEntry',
+    'MenuHistoryResponse'
 ]

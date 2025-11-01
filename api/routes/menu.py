@@ -6,9 +6,10 @@ API層 - 献立ルート
 """
 
 from fastapi import APIRouter, HTTPException, Request
-from typing import Dict, Any
+from typing import Dict, Any, Optional, List
+from datetime import datetime, timedelta
 from config.loggers import GenericLogger
-from ..models import MenuSaveRequest, MenuSaveResponse, SavedMenuRecipe
+from ..models import MenuSaveRequest, MenuSaveResponse, SavedMenuRecipe, MenuHistoryResponse, HistoryRecipe, HistoryEntry
 from mcp_servers.recipe_history_crud import RecipeHistoryCRUD
 from mcp_servers.utils import get_authenticated_client
 from services.session.service import session_service
@@ -169,4 +170,123 @@ async def save_menu(request: MenuSaveRequest, http_request: Request):
     except Exception as e:
         logger.error(f"❌ [API] Unexpected error in save_menu: {e}")
         raise HTTPException(status_code=500, detail="献立保存処理でエラーが発生しました")
+
+
+@router.get("/menu/history", response_model=MenuHistoryResponse)
+async def get_menu_history(
+    days: int = 14,
+    category: Optional[str] = None,
+    http_request: Request = None
+):
+    """献立履歴を取得するエンドポイント"""
+    try:
+        logger.info(f"🔍 [API] Menu history request received: days={days}, category={category}")
+        
+        # 1. 認証処理
+        authorization = http_request.headers.get("Authorization")
+        token = authorization[7:] if authorization and authorization.startswith("Bearer ") else ""
+        
+        user_info = getattr(http_request.state, 'user_info', None)
+        if not user_info:
+            logger.error("❌ [API] User info not found in request state")
+            raise HTTPException(status_code=401, detail="認証が必要です")
+        
+        user_id = user_info['user_id']
+        logger.info(f"🔍 [API] User ID: {user_id}")
+        
+        # 2. 認証済みSupabaseクライアントの作成
+        try:
+            client = get_authenticated_client(user_id, token)
+            logger.info(f"✅ [API] Authenticated client created for user: {user_id}")
+        except Exception as e:
+            logger.error(f"❌ [API] Failed to create authenticated client: {e}")
+            raise HTTPException(status_code=401, detail="認証に失敗しました")
+        
+        # 3. 履歴を取得
+        cutoff_date = datetime.now() - timedelta(days=days)
+        
+        # recipe_historysテーブルから取得
+        result = client.table("recipe_historys")\
+            .select("*")\
+            .eq("user_id", user_id)\
+            .gte("cooked_at", cutoff_date.isoformat())\
+            .order("cooked_at", desc=True)\
+            .execute()
+        
+        logger.info(f"🔍 [API] Retrieved {len(result.data)} recipe histories from database")
+        
+        # 4. 日付ごとにグループ化
+        history_by_date = {}
+        category_prefix_map = {
+            "main": "主菜: ",
+            "sub": "副菜: ",
+            "soup": "汁物: "
+        }
+        
+        for item in result.data:
+            # cooked_atから日付を取得
+            cooked_at_str = item.get("cooked_at")
+            if not cooked_at_str:
+                logger.warning(f"⚠️ [API] Missing cooked_at for history_id={item.get('id')}")
+                continue
+            
+            try:
+                # ISO形式の日時文字列をパース
+                if "Z" in cooked_at_str:
+                    cooked_at = datetime.fromisoformat(cooked_at_str.replace("Z", "+00:00"))
+                else:
+                    cooked_at = datetime.fromisoformat(cooked_at_str)
+                
+                # タイムゾーン情報を削除して日付のみ取得
+                if cooked_at.tzinfo:
+                    cooked_at = cooked_at.replace(tzinfo=None)
+                
+                date_key = cooked_at.date().isoformat()
+            except Exception as e:
+                logger.error(f"❌ [API] Failed to parse cooked_at: {cooked_at_str}, error: {e}")
+                continue
+            
+            if date_key not in history_by_date:
+                history_by_date[date_key] = []
+            
+            # カテゴリを判定（タイトルのプレフィックスから）
+            title = item.get("title", "")
+            recipe_category = None
+            for cat, prefix in category_prefix_map.items():
+                if title.startswith(prefix):
+                    recipe_category = cat
+                    break
+            
+            # カテゴリフィルター適用
+            if category and recipe_category != category:
+                continue
+            
+            history_by_date[date_key].append(HistoryRecipe(
+                category=recipe_category,
+                title=title,
+                source=item.get("source", "web"),
+                url=item.get("url"),
+                history_id=item.get("id")
+            ))
+        
+        # 5. 日付順にソート（最新順）
+        sorted_history = sorted(
+            [HistoryEntry(date=date, recipes=recipes) for date, recipes in history_by_date.items()],
+            key=lambda x: x.date,
+            reverse=True
+        )
+        
+        logger.info(f"✅ [API] Returning {len(sorted_history)} date entries with total {sum(len(entry.recipes) for entry in sorted_history)} recipes")
+        
+        # 6. レスポンスを生成
+        return MenuHistoryResponse(
+            success=True,
+            data=sorted_history
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ [API] Unexpected error in get_menu_history: {e}")
+        raise HTTPException(status_code=500, detail="履歴取得処理でエラーが発生しました")
 
