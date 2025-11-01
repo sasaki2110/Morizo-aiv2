@@ -163,6 +163,20 @@ class IntegrationTestClient:
         """在庫を全削除（テスト用ヘルパー）"""
         message = f"{item_name}を全部削除して"
         return self.send_chat_request(message)
+    
+    def save_menu(self, sse_session_id: str):
+        """献立を保存"""
+        url = f"{self.base_url}/api/menu/save"
+        payload = {
+            "sse_session_id": sse_session_id
+        }
+        try:
+            response = self.session.post(url, json=payload, timeout=120)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"❌ HTTPリクエストエラー: {e}")
+            return None
 
 
 # ============================================================================
@@ -484,6 +498,277 @@ async def run_stage_flow_test(client: IntegrationTestClient, test_case: TestCase
         return False
 
 
+async def run_complete_scenario_test(client: IntegrationTestClient) -> bool:
+    """TC-002: 完全シナリオテスト（曖昧性検出→追加提案→保存）"""
+    print(f"\n{'='*60}")
+    print(f"🧪 テスト: TC-002: 完全シナリオ（曖昧性検出→追加提案→保存）")
+    print(f"📝 説明: 主菜を教えて→レンコンで→追加提案→副菜→追加提案→汁物→追加提案→完成→保存")
+    print(f"{'='*60}")
+    
+    try:
+        # ステップ1: 事前準備（在庫登録）
+        print(f"\n[ステップ1] 在庫登録...")
+        client.add_inventory("レンコン", 1, "個")
+        await wait_for_response_delay(0.5)
+        client.add_inventory("ニンジン", 2, "個")
+        await wait_for_response_delay(0.5)
+        print(f"✅ 在庫登録完了")
+        
+        # セッションIDを生成（テスト全体で使用）
+        sse_session_id = str(uuid.uuid4())
+        print(f"📝 生成したsse_session_id: {sse_session_id}")
+        
+        # ステップ2: 「主菜を教えて」→曖昧性検出
+        print(f"\n[ステップ2] 「主菜を教えて」リクエスト送信...")
+        ambiguity_response = client.send_chat_request("主菜を教えて", sse_session_id=sse_session_id)
+        
+        if not ambiguity_response:
+            print(f"❌ 曖昧性検出リクエストがNoneを返しました")
+            return False
+        
+        if not ambiguity_response.get("success"):
+            print(f"❌ 曖昧性検出リクエストが失敗しました: {ambiguity_response}")
+            return False
+        
+        requires_confirmation = ambiguity_response.get("requires_confirmation", False)
+        confirmation_session_id = ambiguity_response.get("confirmation_session_id")
+        
+        if not requires_confirmation:
+            print(f"❌ 曖昧性が検出されませんでした（requires_confirmation={requires_confirmation}）")
+            return False
+        
+        if not confirmation_session_id:
+            print(f"❌ confirmation_session_id がありません")
+            return False
+        
+        print(f"✅ 曖昧性検出成功: confirmation_session_id={confirmation_session_id}")
+        await wait_for_response_delay(2.0)
+        
+        # ステップ3: 「レンコンで」→主菜提案
+        print(f"\n[ステップ3] 「レンコンで」リクエスト送信（曖昧性解消）...")
+        main_response = client.send_chat_request(
+            "レンコンで",
+            sse_session_id=confirmation_session_id,
+            confirm=True
+        )
+        
+        if not main_response or not main_response.get("success"):
+            print(f"❌ 主菜提案リクエストが失敗しました: {main_response}")
+            return False
+        
+        await wait_for_response_delay(5.0)
+        
+        requires_selection = main_response.get("requires_selection", False)
+        if not requires_selection:
+            print(f"❌ 主菜提案が選択要求を返していません")
+            return False
+        
+        if not verify_stage_transition(main_response, "main"):
+            return False
+        
+        success, task_id_main = verify_selection_response(main_response, "main")
+        if not success or not task_id_main:
+            return False
+        
+        print(f"✅ 主菜提案成功: task_id={task_id_main}")
+        
+        # ステップ4: 「他の提案を見る」→主菜追加提案
+        print(f"\n[ステップ4] 「他の提案を見る」リクエスト送信（主菜追加提案）...")
+        additional_main_response = client.send_selection_request(
+            task_id=task_id_main,
+            selection=0,  # 追加提案要求
+            sse_session_id=sse_session_id
+        )
+        
+        if not additional_main_response:
+            print(f"❌ 主菜追加提案リクエストがNoneを返しました")
+            return False
+        
+        # 追加提案はSSE経由で送信される場合があるため、成功フラグを確認
+        if additional_main_response.get("success"):
+            print(f"✅ 主菜追加提案リクエスト成功")
+        else:
+            print(f"⚠️ 主菜追加提案リクエストのレスポンス: {additional_main_response}")
+        
+        await wait_for_response_delay(5.0)
+        
+        # ステップ5: 「1. を選択」→副菜提案
+        print(f"\n[ステップ5] 主菜を選択 (selection=1)...")
+        selection_main_response = client.send_selection_request(
+            task_id=task_id_main,
+            selection=1,
+            sse_session_id=sse_session_id
+        )
+        
+        if not selection_main_response or not selection_main_response.get("success"):
+            print(f"❌ 主菜選択リクエストが失敗しました: {selection_main_response}")
+            return False
+        
+        await wait_for_response_delay(5.0)
+        
+        # 副菜提案を確認（主菜選択後に自動的に副菜提案が来る場合と、明示的にリクエストする場合がある）
+        print(f"\n[ステップ6] 副菜提案を確認...")
+        sub_request = "主菜で使っていない食材で副菜を5件提案して"
+        sub_response = client.send_chat_request(sub_request, sse_session_id=sse_session_id)
+        
+        if not sub_response or not sub_response.get("success"):
+            print(f"⚠️ 副菜提案が取得できませんでした: {sub_response}")
+            # 主菜選択のレスポンスに副菜提案が含まれている場合もある
+            if selection_main_response.get("requires_selection"):
+                sub_response = selection_main_response
+        
+        if sub_response and sub_response.get("success"):
+            await wait_for_response_delay(5.0)
+            
+            if sub_response.get("requires_selection"):
+                if not verify_stage_transition(sub_response, "sub"):
+                    return False
+                
+                success_sub, task_id_sub = verify_selection_response(sub_response, "sub")
+                if not success_sub or not task_id_sub:
+                    print(f"⚠️ 副菜提案の選択要求が正しくありません")
+                    return False
+                
+                print(f"✅ 副菜提案成功: task_id={task_id_sub}")
+                
+                # ステップ7: 「他の提案を見る」→副菜追加提案
+                print(f"\n[ステップ7] 「他の提案を見る」リクエスト送信（副菜追加提案）...")
+                additional_sub_response = client.send_selection_request(
+                    task_id=task_id_sub,
+                    selection=0,
+                    sse_session_id=sse_session_id
+                )
+                
+                if not additional_sub_response:
+                    print(f"❌ 副菜追加提案リクエストがNoneを返しました")
+                    return False
+                
+                if additional_sub_response.get("success"):
+                    print(f"✅ 副菜追加提案リクエスト成功")
+                
+                await wait_for_response_delay(5.0)
+                
+                # ステップ8: 「2. を選択」→汁物提案
+                print(f"\n[ステップ8] 副菜を選択 (selection=2)...")
+                selection_sub_response = client.send_selection_request(
+                    task_id=task_id_sub,
+                    selection=2,
+                    sse_session_id=sse_session_id
+                )
+                
+                if not selection_sub_response or not selection_sub_response.get("success"):
+                    print(f"❌ 副菜選択リクエストが失敗しました: {selection_sub_response}")
+                    return False
+                
+                await wait_for_response_delay(5.0)
+                
+                # 汁物提案を確認
+                print(f"\n[ステップ9] 汁物提案を確認...")
+                soup_request = "主菜・副菜で使っていない食材で汁物を5件提案して"
+                soup_response = client.send_chat_request(soup_request, sse_session_id=sse_session_id)
+                
+                if not soup_response or not soup_response.get("success"):
+                    # 副菜選択のレスポンスに汁物提案が含まれている場合もある
+                    if selection_sub_response.get("requires_selection"):
+                        soup_response = selection_sub_response
+                
+                if soup_response and soup_response.get("success"):
+                    await wait_for_response_delay(5.0)
+                    
+                    if soup_response.get("requires_selection"):
+                        if not verify_stage_transition(soup_response, "soup"):
+                            return False
+                        
+                        success_soup, task_id_soup = verify_selection_response(soup_response, "soup")
+                        if not success_soup or not task_id_soup:
+                            print(f"⚠️ 汁物提案の選択要求が正しくありません")
+                            return False
+                        
+                        print(f"✅ 汁物提案成功: task_id={task_id_soup}")
+                        
+                        # ステップ10: 「他の提案を見る」→汁物追加提案
+                        print(f"\n[ステップ10] 「他の提案を見る」リクエスト送信（汁物追加提案）...")
+                        additional_soup_response = client.send_selection_request(
+                            task_id=task_id_soup,
+                            selection=0,
+                            sse_session_id=sse_session_id
+                        )
+                        
+                        if not additional_soup_response:
+                            print(f"❌ 汁物追加提案リクエストがNoneを返しました")
+                            return False
+                        
+                        if additional_soup_response.get("success"):
+                            print(f"✅ 汁物追加提案リクエスト成功")
+                        
+                        await wait_for_response_delay(5.0)
+                        
+                        # ステップ11: 「3. を選択」→献立完成
+                        print(f"\n[ステップ11] 汁物を選択 (selection=3)...")
+                        selection_soup_response = client.send_selection_request(
+                            task_id=task_id_soup,
+                            selection=3,
+                            sse_session_id=sse_session_id
+                        )
+                        
+                        if not selection_soup_response or not selection_soup_response.get("success"):
+                            print(f"❌ 汁物選択リクエストが失敗しました: {selection_soup_response}")
+                            return False
+                        
+                        await wait_for_response_delay(3.0)
+                        
+                        # 献立完成の確認
+                        if not verify_completion_response(selection_soup_response):
+                            print(f"❌ 献立完成の検証に失敗しました")
+                            return False
+                        
+                        print(f"✅ 献立完成確認成功")
+                        
+                        # ステップ12: 献立を保存
+                        print(f"\n[ステップ12] 献立を保存...")
+                        save_response = client.save_menu(sse_session_id)
+                        
+                        if not save_response:
+                            print(f"❌ 献立保存リクエストがNoneを返しました")
+                            return False
+                        
+                        if not save_response.get("success"):
+                            print(f"❌ 献立保存が失敗しました: {save_response}")
+                            return False
+                        
+                        total_saved = save_response.get("total_saved", 0)
+                        if total_saved == 0:
+                            print(f"⚠️ 保存されたレシピが0件です")
+                        else:
+                            print(f"✅ 献立保存成功: {total_saved}件のレシピが保存されました")
+                        
+                        print(f"✅ 完全シナリオのテスト成功")
+                        return True
+                    else:
+                        print(f"⚠️ 汁物提案が選択要求を返していません")
+                        return False
+                else:
+                    print(f"⚠️ 汁物提案が取得できませんでした")
+                    return False
+            else:
+                print(f"⚠️ 副菜提案が選択要求を返していません")
+                return False
+        else:
+            print(f"⚠️ 副菜提案が取得できませんでした")
+            return False
+        
+    except AssertionError as e:
+        print(f"❌ アサーションエラー: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+    except Exception as e:
+        print(f"❌ テスト実行エラー: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 # ============================================================================
 # Phase 2.5: 基本機能のテスト実行
 # ============================================================================
@@ -718,6 +1003,15 @@ TEST_CASES = [
         expected_stages=["main", "sub", "soup"],
         test_type="stage_flow"
     ),
+    
+    # ========================================================================
+    # Phase 5C前: 完全シナリオテスト
+    # ========================================================================
+    TestCase(
+        name="TC-002: 完全シナリオ（曖昧性検出→追加提案→保存）",
+        description="主菜を教えて→レンコンで→追加提案→副菜→追加提案→汁物→追加提案→完成→保存",
+        test_type="complete_scenario"
+    ),
 ]
 
 
@@ -733,6 +1027,8 @@ async def run_test_case(client: IntegrationTestClient, test_case: TestCase) -> b
     
     if test_case.test_type == "stage_flow":
         return await run_stage_flow_test(client, test_case)
+    elif test_case.test_type == "complete_scenario":
+        return await run_complete_scenario_test(client)
     else:
         return await run_basic_test(client, test_case)
 
