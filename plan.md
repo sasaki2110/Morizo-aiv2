@@ -154,7 +154,7 @@
   - **Phase 5B-2**: 選択確定時の情報取得([plan_Phase_5B_2.md](./plan_Phase_5B_2.md))
   - **Phase 5B-3**: 保存機能の実装と統合([plan_Phase_5B_3.md](./plan_Phase_5B_3.md))
   - **Phase 5C-1**: バックエンドAPI拡張（履歴取得）([plan_Phase_5C_1.md](./plan_Phase_5C_1.md))
-  - **Phase 5C-2**: 重複警告計算機能([plan_Phase_5C_2.md](./plan_Phase_5C_2.md))
+  - **Phase 5C-2**: 重複警告計算機能（⚠️ **実装不要のためスキップ**）([plan_Phase_5C_2.md](./plan_Phase_5C_2.md))
   - **Phase 5C-3**: フロントエンドUI実装（履歴パネル）([plan_Phase_5C_3.md](./plan_Phase_5C_3.md))
 
 ## Phase 3: 副菜・汁物の段階的選択
