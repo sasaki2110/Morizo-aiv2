@@ -59,21 +59,68 @@ class StageManager:
         )
     
     async def get_selected_recipes(self, sse_session_id: str) -> Dict[str, Any]:
-        """選択済みレシピを取得
+        """選択済みレシピを取得（親セッションからも集約）
         
         Args:
             sse_session_id: SSEセッションID
         
         Returns:
-            Dict[str, Any]: 選択済みレシピの辞書
+            Dict[str, Any]: 選択済みレシピの辞書（親セッションからも集約）
         """
-        return await call_session_method(
+        # 現在のセッションから選択済みレシピを取得
+        current_recipes = await call_session_method(
             self.session_service,
             sse_session_id,
             "get_selected_recipes",
             lambda s: s.get_selected_recipes(),
             {"main": None, "sub": None, "soup": None}
         )
+        
+        # 親セッションIDを取得して再帰的に集約
+        # 無限ループ防止のため、訪問済みセッションIDを追跡（最大10階層まで）
+        return await self._get_selected_recipes_recursive(sse_session_id, current_recipes, visited=set(), max_depth=10)
+    
+    async def _get_selected_recipes_recursive(
+        self, 
+        sse_session_id: str, 
+        current_recipes: Dict[str, Any],
+        visited: set,
+        max_depth: int
+    ) -> Dict[str, Any]:
+        """再帰的に選択済みレシピを集約（内部メソッド）"""
+        # 無限ループ防止
+        if sse_session_id in visited or max_depth <= 0:
+            return current_recipes
+        
+        visited.add(sse_session_id)
+        
+        try:
+            session = await self.session_service.get_session(sse_session_id, user_id=None)
+            if session:
+                parent_session_id = session.get_context("parent_session_id")
+                if parent_session_id:
+                    # 親セッションからも選択済みレシピを取得（再帰）
+                    parent_recipes = await self._get_selected_recipes_recursive(
+                        parent_session_id,
+                        {"main": None, "sub": None, "soup": None},
+                        visited,
+                        max_depth - 1
+                    )
+                    
+                    # 現在のセッションの選択済みレシピで親セッションのものを上書き
+                    # （最新の選択が優先される、Noneチェックを明示的に行う）
+                    merged_recipes = {
+                        "main": current_recipes.get("main") if current_recipes.get("main") is not None else parent_recipes.get("main"),
+                        "sub": current_recipes.get("sub") if current_recipes.get("sub") is not None else parent_recipes.get("sub"),
+                        "soup": current_recipes.get("soup") if current_recipes.get("soup") is not None else parent_recipes.get("soup")
+                    }
+                    return merged_recipes
+        except Exception as e:
+            # 親セッションの取得に失敗した場合は、現在のセッションの結果を返す
+            import logging
+            logging.warning(f"⚠️ [StageManager] Failed to get parent session recipes: {e}")
+        
+        return current_recipes
     
     async def get_used_ingredients(self, sse_session_id: str) -> list:
         """使用済み食材を取得

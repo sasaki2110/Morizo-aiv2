@@ -6,7 +6,7 @@ Pydanticによるリクエストデータの型定義とバリデーション
 """
 
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 
 class ChatRequest(BaseModel):
@@ -93,4 +93,5 @@ class RecipeAdoptionRequest(BaseModel):
 
 class MenuSaveRequest(BaseModel):
     """献立保存リクエスト"""
-    sse_session_id: str = Field(..., description="SSEセッションID")
+    sse_session_id: Optional[str] = Field(None, description="SSEセッションID（後方互換性のためオプショナル）")
+    recipes: Optional[Dict[str, Any]] = Field(None, description="選択済みレシピ（main, sub, soup）。指定された場合はセッションIDよりも優先される")

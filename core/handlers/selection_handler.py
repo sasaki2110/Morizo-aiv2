@@ -126,7 +126,11 @@ class SelectionHandler:
                 return {
                     "success": True,
                     "message": "主菜が確定しました。副菜を提案します。",
-                    "requires_next_stage": True
+                    "requires_next_stage": True,
+                    "selected_recipe": {  # Phase 5B-2: 選択したレシピ情報を追加
+                        "category": "main",
+                        "recipe": selected_recipe
+                    }
                 }
             
             elif next_stage == "soup":
@@ -145,22 +149,37 @@ class SelectionHandler:
                 return {
                     "success": True,
                     "message": "副菜が確定しました。汁物を提案します。",
-                    "requires_next_stage": True
+                    "requires_next_stage": True,
+                    "selected_recipe": {  # Phase 5B-2: 選択したレシピ情報を追加
+                        "category": "sub",
+                        "recipe": selected_recipe
+                    }
                 }
             
             elif next_stage == "completed":
                 # 完了
                 self.logger.info(f"✅ [SELECTION] All stages completed")
-                sub_dish = await self.stage_manager.get_selected_sub_dish(sse_session_id, user_id)
-                soup = await self.stage_manager.get_selected_soup(sse_session_id, user_id)
+                
+                # Phase 5B-3: すべての選択済みレシピを集約して取得（親セッションからも）
+                all_selected_recipes = await self.stage_manager.get_selected_recipes(sse_session_id)
+                self.logger.info(f"🔍 [SELECTION] All selected recipes (aggregated): main={all_selected_recipes.get('main') is not None}, sub={all_selected_recipes.get('sub') is not None}, soup={all_selected_recipes.get('soup') is not None}")
+                
+                # 集約された結果を使用（現在選択したレシピで上書き）
+                main_dish = all_selected_recipes.get("main")
+                sub_dish = all_selected_recipes.get("sub")
+                soup_dish = all_selected_recipes.get("soup") or selected_recipe  # 今選択したレシピが汁物の場合
                 
                 return {
                     "success": True,
                     "message": "献立が完成しました。",
                     "menu": {
-                        "main": selected_recipe,
+                        "main": main_dish,
                         "sub": sub_dish,
-                        "soup": soup
+                        "soup": soup_dish
+                    },
+                    "selected_recipe": {  # Phase 5B-2: 選択したレシピ情報を追加
+                        "category": "soup",
+                        "recipe": selected_recipe
                     }
                 }
             
@@ -172,7 +191,11 @@ class SelectionHandler:
                 "task_id": task_id,
                 "selection": selection,
                 "current_stage": current_stage,
-                "message": f"選択肢 {selection} を受け付けました。"
+                "message": f"選択肢 {selection} を受け付けました。",
+                "selected_recipe": {  # Phase 5B-2: 選択したレシピ情報を追加
+                    "category": current_stage,
+                    "recipe": selected_recipe
+                }
             }
             
         except Exception as e:
@@ -237,6 +260,9 @@ class SelectionHandler:
                     new_session.set_context("main_ingredient", main_ingredient)
                     new_session.set_context("inventory_items", inventory_items)
                     new_session.set_context("menu_type", menu_type)
+                    # Phase 5B-3: 親セッションIDを保存（選択済みレシピの集約に使用）
+                    new_session.set_context("parent_session_id", old_sse_session_id)
+                    self.logger.info(f"✅ [SELECTION] Saved parent_session_id={old_sse_session_id} to new session")
 
                     # 現在段階・使用済み食材・選択済みレシピを引き継ぐ
                     try:
@@ -258,14 +284,22 @@ class SelectionHandler:
                     except Exception:
                         pass
                     try:
-                        # 参考: 既に選択済みのレシピも引き継いでおく（将来の利用を想定）
-                        if hasattr(old_session, 'selected_main_dish'):
-                            new_session.selected_main_dish = old_session.selected_main_dish
-                        if hasattr(old_session, 'selected_sub_dish'):
-                            new_session.selected_sub_dish = old_session.selected_sub_dish
-                        if hasattr(old_session, 'selected_soup'):
-                            new_session.selected_soup = old_session.selected_soup
-                    except Exception:
+                        # Phase 5B-3: 既に選択済みのレシピを新しいセッションに引き継ぐ
+                        # StageManager経由で選択済みレシピを取得し、新しいセッションに設定
+                        if self.stage_manager:
+                            old_selected_recipes = await self.stage_manager.get_selected_recipes(old_sse_session_id)
+                            self.logger.info(f"🔍 [SELECTION] Retrieving selected recipes from old session: {old_selected_recipes}")
+                            
+                            # 各カテゴリの選択済みレシピを新しいセッションに設定
+                            for category in ["main", "sub", "soup"]:
+                                recipe = old_selected_recipes.get(category)
+                                if recipe:
+                                    await self.stage_manager.set_selected_recipe(sse_session_id, category, recipe)
+                                    self.logger.info(f"✅ [SELECTION] Copied selected {category} recipe to new session: {recipe.get('title', 'N/A')}")
+                        else:
+                            self.logger.warning(f"⚠️ [SELECTION] stage_manager not available, skipping selected recipes copy")
+                    except Exception as e:
+                        self.logger.warning(f"⚠️ [SELECTION] Failed to copy selected recipes: {e}")
                         pass
                     
                     # 提案済みタイトルも新しいセッションにコピー（カテゴリ別）

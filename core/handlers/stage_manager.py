@@ -108,6 +108,8 @@ class StageManager:
             self.logger.info(f"🔍 [STAGE] Current stage: {current_stage}")
             
             # 段階に応じて処理
+            # 注意: Session.set_selected_recipe()は2つの引数（category, recipe）のみを受け取る
+            # inventory_itemsはセッションコンテキストから自動的に取得される
             if current_stage == "main":
                 # 主菜を選択した場合、副菜段階に進む
                 session.set_selected_recipe("main", selected_recipe)
@@ -194,4 +196,16 @@ class StageManager:
         except Exception as e:
             self.logger.error(f"❌ [STAGE] Failed to get selected soup: {e}")
             return None
+    
+    async def get_selected_recipes(self, sse_session_id: str) -> Dict[str, Any]:
+        """選択済みレシピを取得（親セッションからも集約）
+        
+        Args:
+            sse_session_id: SSEセッションID
+        
+        Returns:
+            Dict[str, Any]: 選択済みレシピの辞書（親セッションからも集約）
+        """
+        # SessionService経由で取得（内部でservices/session/stage_manager.pyのStageManagerを使用）
+        return await self.session_service.get_selected_recipes(sse_session_id)
 

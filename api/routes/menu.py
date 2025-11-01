@@ -35,12 +35,28 @@ async def save_menu(request: MenuSaveRequest, http_request: Request):
         user_id = user_info['user_id']
         logger.info(f"🔍 [API] User ID: {user_id}")
         
-        # 2. セッションから選択済みレシピを取得
-        selected_recipes = await session_service.get_selected_recipes(request.sse_session_id)
+        # 2. 選択済みレシピを取得（フロントエンドから直接送信された場合は優先）
+        if request.recipes:
+            # フロントエンドから直接送信されたレシピ情報を使用
+            selected_recipes = request.recipes
+            logger.info(f"🔍 [API] Using recipes from request: main={selected_recipes.get('main') is not None}, sub={selected_recipes.get('sub') is not None}, soup={selected_recipes.get('soup') is not None}")
+        elif request.sse_session_id:
+            # セッションIDから選択済みレシピを取得（後方互換性）
+            selected_recipes = await session_service.get_selected_recipes(request.sse_session_id)
+            logger.info(f"🔍 [API] Using recipes from session: main={selected_recipes.get('main') is not None}, sub={selected_recipes.get('sub') is not None}, soup={selected_recipes.get('soup') is not None}")
+        else:
+            # どちらも指定されていない場合はエラー
+            logger.warning(f"⚠️ [API] Neither recipes nor sse_session_id provided")
+            return MenuSaveResponse(
+                success=False,
+                message="レシピ情報またはセッションIDが必要です",
+                saved_recipes=[],
+                total_saved=0
+            )
         
         # 選択済みレシピがない、またはすべてNoneの場合
         if not selected_recipes or all(recipe is None for recipe in selected_recipes.values()):
-            logger.warning(f"⚠️ [API] No selected recipes found for session: {request.sse_session_id}")
+            logger.warning(f"⚠️ [API] No selected recipes found")
             return MenuSaveResponse(
                 success=False,
                 message="保存するレシピがありません",
@@ -49,7 +65,7 @@ async def save_menu(request: MenuSaveRequest, http_request: Request):
             )
         
         # 選択済みレシピのログ出力
-        logger.info(f"🔍 [API] Selected recipes from session:")
+        logger.info(f"🔍 [API] Selected recipes to save:")
         for category in ["main", "sub", "soup"]:
             recipe = selected_recipes.get(category)
             if recipe:
