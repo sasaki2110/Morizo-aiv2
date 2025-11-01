@@ -43,23 +43,29 @@ class WebSearchResultIntegrator:
                 self.logger.info(f"🔍 [WebSearchResultIntegrator] No web search results found for task {task_id}")
                 return candidates
             
-            # 候補とWeb検索結果を統合
+            # 候補とWeb検索結果を統合（sourceフィールドを保持）
             integrated_candidates = []
             for i, candidate in enumerate(candidates):
                 integrated_candidate = candidate.copy()
+                
+                # sourceフィールドが存在しない場合はデフォルト値"web"を設定
+                if "source" not in integrated_candidate:
+                    integrated_candidate["source"] = "web"
                 
                 # 対応するWeb検索結果を取得
                 if i < len(web_search_results):
                     web_result = web_search_results[i]
                     if web_result.get("url"):
-                        # URL情報を統合
+                        # URL情報を統合（sourceは既存の値を保持）
                         domain = utils.extract_domain(web_result.get("url", "")) if utils else ""
                         integrated_candidate["urls"] = [{
                             "title": web_result.get("title", ""),
                             "url": web_result.get("url", ""),
                             "domain": domain
                         }]
-                        self.logger.info(f"🔗 [WebSearchResultIntegrator] Integrated URLs for candidate {i}: {integrated_candidate.get('urls', [])}")
+                        # URLが存在する場合でも、元のsource（llm/rag）を保持
+                        # Web検索はレシピ詳細取得のための補助情報であり、出典は変えない
+                        self.logger.info(f"🔗 [WebSearchResultIntegrator] Integrated URLs for candidate {i}: {integrated_candidate.get('urls', [])}, source: {integrated_candidate.get('source', 'N/A')}")
                     else:
                         self.logger.warning(f"⚠️ [WebSearchResultIntegrator] Web search result has no URL for candidate {i}")
                 else:

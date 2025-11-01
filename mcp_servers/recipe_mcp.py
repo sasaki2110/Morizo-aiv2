@@ -405,14 +405,25 @@ async def generate_proposals(
         # 両方の結果を待つ（並列実行）
         llm_result, rag_result = await asyncio.gather(llm_task, rag_task)
         
-        # 統合
+        # 統合（sourceフィールドを追加）
         candidates = []
         if llm_result.get("success"):
-            candidates.extend(llm_result["data"]["candidates"])
+            llm_candidates = llm_result["data"]["candidates"]
+            # LLM候補にsourceフィールドを追加
+            for candidate in llm_candidates:
+                if "source" not in candidate:
+                    candidate["source"] = "llm"
+            candidates.extend(llm_candidates)
         if rag_result:
-            candidates.extend([{"title": r["title"], "ingredients": r.get("ingredients", [])} for r in rag_result])
+            # RAG候補にsourceフィールドを追加
+            rag_candidates = [{"title": r["title"], "ingredients": r.get("ingredients", []), "source": "rag"} for r in rag_result]
+            candidates.extend(rag_candidates)
         
-        logger.info(f"✅ [RECIPE] generate_proposals completed: {len(candidates)} candidates")
+        # デバッグログ: 各候補のsourceを確認
+        for i, candidate in enumerate(candidates):
+            logger.debug(f"🔍 [RECIPE] Candidate {i+1}: title='{candidate.get('title', 'N/A')}', source='{candidate.get('source', 'N/A')}'")
+        
+        logger.info(f"✅ [RECIPE] generate_proposals completed: {len(candidates)} candidates (LLM: {len(llm_result.get('data', {}).get('candidates', [])) if llm_result.get('success') else 0}, RAG: {len(rag_result) if rag_result else 0})")
         
         return {
             "success": True,

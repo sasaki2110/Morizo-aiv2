@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 from config.loggers import GenericLogger
 from config.logging import setup_logging
 from api.middleware import AuthenticationMiddleware, LoggingMiddleware
-from api.routes import chat_router, health_router, recipe_router
+from api.routes import chat_router, health_router, recipe_router, menu_router
 from api.models import ErrorResponse
 
 # 環境変数の読み込み
@@ -90,6 +90,7 @@ app.add_middleware(AuthenticationMiddleware)
 app.include_router(chat_router, prefix="", tags=["chat"])
 app.include_router(health_router, prefix="", tags=["health"])
 app.include_router(recipe_router, prefix="/api", tags=["recipe"])
+app.include_router(menu_router, prefix="/api", tags=["menu"])
 
 
 # エラーハンドラー

@@ -89,3 +89,8 @@ class RecipeAdoptionRequest(BaseModel):
         None, 
         description="認証トークン（ヘッダーからも取得可能）"
     )
+
+
+class MenuSaveRequest(BaseModel):
+    """献立保存リクエスト"""
+    sse_session_id: str = Field(..., description="SSEセッションID")

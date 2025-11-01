@@ -77,7 +77,7 @@ class StageManager:
             
             # 選択されたレシピを取得
             selected_recipe = candidates[selection - 1]  # インデックスは1ベース
-            self.logger.info(f"✅ [STAGE] Selected recipe: {selected_recipe.get('title', 'Unknown')}")
+            self.logger.info(f"✅ [STAGE] Selected recipe: title='{selected_recipe.get('title', 'Unknown')}', source='{selected_recipe.get('source', 'N/A')}'")
             
             return selected_recipe
             

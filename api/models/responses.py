@@ -83,3 +83,18 @@ class RecipeAdoptionResponse(BaseModel):
     message: str = Field(..., description="レスポンスメッセージ")
     saved_recipes: List[SavedRecipe] = Field(..., description="保存されたレシピのリスト")
     total_saved: int = Field(..., description="保存されたレシピ数")
+
+
+class SavedMenuRecipe(BaseModel):
+    """保存されたレシピ情報（献立保存用）"""
+    category: str = Field(..., description="カテゴリ（main, sub, soup）")
+    title: str = Field(..., description="プレフィックス付きタイトル")
+    history_id: str = Field(..., description="保存されたレシピ履歴のID")
+
+
+class MenuSaveResponse(BaseModel):
+    """献立保存レスポンス"""
+    success: bool = Field(..., description="処理成功フラグ")
+    message: str = Field(..., description="レスポンスメッセージ")
+    saved_recipes: List[SavedMenuRecipe] = Field(..., description="保存されたレシピのリスト")
+    total_saved: int = Field(..., description="保存されたレシピ数")
