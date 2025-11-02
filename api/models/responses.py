@@ -61,6 +61,12 @@ class InventoryListResponse(BaseModel):
     data: List[InventoryResponse] = Field(..., description="在庫アイテムリスト")
 
 
+class InventoryItemResponse(BaseModel):
+    """在庫アイテム単体レスポンス（追加・更新用）"""
+    success: bool = Field(..., description="成功フラグ")
+    data: InventoryResponse = Field(..., description="在庫アイテム")
+
+
 class ErrorResponse(BaseModel):
     """エラーレスポンス"""
     detail: str = Field(..., description="エラー詳細")
