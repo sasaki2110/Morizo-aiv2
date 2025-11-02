@@ -111,8 +111,8 @@ class SelectionHandler:
             
             # 次の段階に応じた処理
             if next_stage == "sub":
-                # 副菜提案に自動遷移
-                self.logger.info(f"🔄 [SELECTION] Auto-transitioning to sub dish proposal")
+                # 副菜提案のリクエストを生成（確認待ち状態）
+                self.logger.info(f"🔄 [SELECTION] Preparing sub dish proposal confirmation")
                 next_request = await self.stage_manager.generate_sub_dish_request(
                     selected_recipe, sse_session_id, user_id
                 )
@@ -122,11 +122,14 @@ class SelectionHandler:
                 session.set_context("next_stage_request", next_request)
                 self.logger.info(f"💾 [SELECTION] Saved next stage request to session")
                 
-                # フラグを返してフロントエンドに次の提案を要求
+                # 確認待ちフラグを返してフロントエンドに確認を要求
                 return {
                     "success": True,
-                    "message": "主菜が確定しました。副菜を提案します。",
-                    "requires_next_stage": True,
+                    "message": "主菜が確定しました。",
+                    "requires_stage_confirmation": True,  # 新規追加
+                    "requires_next_stage": True,  # 後方互換性のため維持
+                    "next_stage_name": "sub",  # 新規追加
+                    "confirmation_message": "主菜が確定しました。副菜の選択に進みますか？",  # 新規追加
                     "selected_recipe": {  # Phase 5B-2: 選択したレシピ情報を追加
                         "category": "main",
                         "recipe": selected_recipe
@@ -134,8 +137,8 @@ class SelectionHandler:
                 }
             
             elif next_stage == "soup":
-                # 汁物提案に自動遷移
-                self.logger.info(f"🔄 [SELECTION] Auto-transitioning to soup proposal")
+                # 汁物提案のリクエストを生成（確認待ち状態）
+                self.logger.info(f"🔄 [SELECTION] Preparing soup proposal confirmation")
                 next_request = await self.stage_manager.generate_soup_request(
                     selected_recipe, sse_session_id, user_id
                 )
@@ -145,11 +148,14 @@ class SelectionHandler:
                 session.set_context("next_stage_request", next_request)
                 self.logger.info(f"💾 [SELECTION] Saved next stage request to session")
                 
-                # フラグを返してフロントエンドに次の提案を要求
+                # 確認待ちフラグを返してフロントエンドに確認を要求
                 return {
                     "success": True,
-                    "message": "副菜が確定しました。汁物を提案します。",
-                    "requires_next_stage": True,
+                    "message": "副菜が確定しました。",
+                    "requires_stage_confirmation": True,  # 新規追加
+                    "requires_next_stage": True,  # 後方互換性のため維持
+                    "next_stage_name": "soup",  # 新規追加
+                    "confirmation_message": "副菜が確定しました。汁物の選択に進みますか？",  # 新規追加
                     "selected_recipe": {  # Phase 5B-2: 選択したレシピ情報を追加
                         "category": "sub",
                         "recipe": selected_recipe

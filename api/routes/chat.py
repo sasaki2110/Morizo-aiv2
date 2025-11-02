@@ -89,6 +89,10 @@ async def chat(request: ChatRequest, http_request: Request):
         logger.info(f"🔍 [API] User info from middleware: {user_id}")
         logger.info(f"🔍 [API] Token from Authorization header: {'SET' if token else 'NOT SET'}")
         
+        # メッセージの前処理（空白のみのメッセージを検知）
+        message_stripped = request.message.strip() if request.message else ""
+        is_whitespace_only = len(message_stripped) == 0
+        
         # SSEセッションIDの生成（提供されていない場合）
         sse_session_id = request.sse_session_id or str(uuid.uuid4())
         
@@ -99,7 +103,34 @@ async def chat(request: ChatRequest, http_request: Request):
         from services.session_service import session_service
         session = await session_service.get_session(sse_session_id, user_id)
         
-        if session:
+        # 空白のみのメッセージの場合、セッションが見つからなくてもユーザーの全セッションからnext_stage_requestを探す
+        if is_whitespace_only and not session:
+            logger.info(f"🔍 [API] Whitespace-only message detected, searching for next_stage_request in user's sessions")
+            # ユーザーの全セッションからnext_stage_requestを持つセッションを探す
+            user_sessions = session_service.user_sessions.get(user_id, {})
+            for session_id, candidate_session in user_sessions.items():
+                next_stage_request = candidate_session.get_context("next_stage_request")
+                if next_stage_request:
+                    logger.info(f"🔄 [API] Next stage request found in session {session_id}: {next_stage_request}")
+                    # セッションから削除して実行
+                    candidate_session.set_context("next_stage_request", None)
+                    # 見つかったセッションIDを使って次の段階のリクエストを実行
+                    response_data = await agent.process_request(
+                        next_stage_request,
+                        user_id,
+                        token=token,
+                        sse_session_id=session_id,
+                        is_confirmation_response=False
+                    )
+                    break
+            else:
+                # next_stage_requestが見つからない場合はエラーを返す
+                logger.warning(f"⚠️ [API] Whitespace-only message but no next_stage_request found in user's sessions")
+                raise HTTPException(
+                    status_code=400, 
+                    detail="次の段階へのリクエストが見つかりませんでした。セッション情報が無効の可能性があります。"
+                )
+        elif session:
             next_stage_request = session.get_context("next_stage_request")
             if next_stage_request:
                 logger.info(f"🔄 [API] Next stage request found in session: {next_stage_request}")
@@ -113,6 +144,13 @@ async def chat(request: ChatRequest, http_request: Request):
                     sse_session_id=sse_session_id,
                     is_confirmation_response=False
                 )
+            elif is_whitespace_only:
+                # 空白のみのメッセージで、next_stage_requestが見つからない場合はエラー
+                logger.warning(f"⚠️ [API] Whitespace-only message but no next_stage_request in session")
+                raise HTTPException(
+                    status_code=400, 
+                    detail="次の段階へのリクエストが見つかりませんでした。"
+                )
             else:
                 # 通常のリクエストの処理
                 response_data = await agent.process_request(
@@ -123,6 +161,13 @@ async def chat(request: ChatRequest, http_request: Request):
                     is_confirmation_response=actual_confirm
                 )
         else:
+            # 空白のみのメッセージでセッションも見つからない場合はエラー
+            if is_whitespace_only:
+                logger.warning(f"⚠️ [API] Whitespace-only message but session not found")
+                raise HTTPException(
+                    status_code=400, 
+                    detail="セッション情報が無効です。ページを再読み込みしてください。"
+                )
             # 通常のリクエストの処理
             response_data = await agent.process_request(
                 request.message, 

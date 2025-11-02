@@ -350,6 +350,228 @@ async def wait_for_response_delay(seconds: float = 3.0):
 # Phase 3E: 段階的選択システムのテスト実行
 # ============================================================================
 
+async def run_auto_transition_test(client: IntegrationTestClient, test_case: TestCase) -> bool:
+    """TC-003: 自動遷移検証テスト（確認ステップと空白メッセージ遷移）"""
+    print(f"\n{'='*60}")
+    print(f"🧪 テスト: {test_case.name}")
+    print(f"📝 説明: {test_case.description}")
+    print(f"{'='*60}")
+    
+    try:
+        # 1. 事前準備
+        if test_case.setup:
+            print(f"📋 事前準備を実行...")
+            await test_case.setup(client)
+            await wait_for_response_delay(1.0)
+        
+        # 2. 主菜提案リクエスト
+        print(f"\n[ステップ1] 主菜提案リクエスト送信...")
+        main_request = "レンコンの主菜を5件提案して"
+        print(f"📤 送信メッセージ: {main_request}")
+        
+        sse_session_id = str(uuid.uuid4())
+        print(f"📝 生成したsse_session_id: {sse_session_id}")
+        
+        main_response = client.send_chat_request(main_request, sse_session_id=sse_session_id)
+        
+        if not main_response or not main_response.get("success"):
+            print(f"❌ 主菜提案リクエストが失敗しました: {main_response}")
+            return False
+        
+        await wait_for_response_delay(2.0)
+        
+        # 主菜選択要求の確認
+        requires_selection = main_response.get("requires_selection", False)
+        if not requires_selection:
+            print(f"❌ 主菜提案が選択要求を返していません")
+            return False
+        
+        # 段階検証
+        if not verify_stage_transition(main_response, "main"):
+            return False
+        
+        # 選択要求の検証
+        success, task_id = verify_selection_response(main_response, "main")
+        if not success or not task_id:
+            return False
+        
+        # 3. 主菜を選択
+        print(f"\n[ステップ2] 主菜を選択 (selection=1)...")
+        selection_response = client.send_selection_request(
+            task_id=task_id,
+            selection=1,
+            sse_session_id=sse_session_id
+        )
+        
+        if not selection_response or not selection_response.get("success"):
+            print(f"❌ 主菜選択リクエストが失敗しました: {selection_response}")
+            return False
+        
+        # 確認ステップフラグの検証
+        requires_stage_confirmation = selection_response.get("requires_stage_confirmation", False)
+        confirmation_message = selection_response.get("confirmation_message")
+        next_stage_name = selection_response.get("next_stage_name")
+        
+        print(f"🔍 確認ステップフラグ検証:")
+        print(f"   requires_stage_confirmation: {requires_stage_confirmation}")
+        print(f"   confirmation_message: {confirmation_message}")
+        print(f"   next_stage_name: {next_stage_name}")
+        
+        if not requires_stage_confirmation:
+            print(f"❌ requires_stage_confirmation が True になっていません")
+            return False
+        
+        if confirmation_message != "主菜が確定しました。副菜の選択に進みますか？":
+            print(f"❌ 確認メッセージが正しくありません: {confirmation_message}")
+            return False
+        
+        if next_stage_name != "sub":
+            print(f"❌ next_stage_name が 'sub' になっていません: {next_stage_name}")
+            return False
+        
+        print(f"✅ 確認ステップフラグ検証成功")
+        
+        await wait_for_response_delay(2.0)
+        
+        # 4. 空白メッセージで自動遷移（副菜提案）
+        print(f"\n[ステップ3] 空白メッセージで副菜提案への自動遷移...")
+        print(f"📤 送信メッセージ: ' ' (空白のみ)")
+        
+        # 空白メッセージを送信（バックエンドがnext_stage_requestを探して実行）
+        auto_transition_response = client.send_chat_request(" ", sse_session_id=sse_session_id)
+        
+        if not auto_transition_response or not auto_transition_response.get("success"):
+            print(f"❌ 自動遷移リクエストが失敗しました: {auto_transition_response}")
+            return False
+        
+        await wait_for_response_delay(5.0)
+        
+        # 副菜提案の確認
+        requires_selection_sub = auto_transition_response.get("requires_selection", False)
+        if not requires_selection_sub:
+            print(f"❌ 自動遷移後のレスポンスが選択要求を返していません: {auto_transition_response}")
+            return False
+        
+        if not verify_stage_transition(auto_transition_response, "sub"):
+            return False
+        
+        success_sub, task_id_sub = verify_selection_response(auto_transition_response, "sub")
+        if not success_sub or not task_id_sub:
+            print(f"❌ 副菜提案の選択要求が正しくありません")
+            return False
+        
+        print(f"✅ 自動遷移成功: 副菜提案が取得できました")
+        
+        # 5. 副菜を選択
+        print(f"\n[ステップ4] 副菜を選択 (selection=1)...")
+        selection_response_sub = client.send_selection_request(
+            task_id=task_id_sub,
+            selection=1,
+            sse_session_id=sse_session_id
+        )
+        
+        if not selection_response_sub or not selection_response_sub.get("success"):
+            print(f"❌ 副菜選択リクエストが失敗しました: {selection_response_sub}")
+            return False
+        
+        # 確認ステップフラグの検証（副菜→汁物）
+        requires_stage_confirmation_sub = selection_response_sub.get("requires_stage_confirmation", False)
+        confirmation_message_sub = selection_response_sub.get("confirmation_message")
+        next_stage_name_sub = selection_response_sub.get("next_stage_name")
+        
+        print(f"🔍 確認ステップフラグ検証（副菜→汁物）:")
+        print(f"   requires_stage_confirmation: {requires_stage_confirmation_sub}")
+        print(f"   confirmation_message: {confirmation_message_sub}")
+        print(f"   next_stage_name: {next_stage_name_sub}")
+        
+        if not requires_stage_confirmation_sub:
+            print(f"❌ requires_stage_confirmation が True になっていません")
+            return False
+        
+        if confirmation_message_sub != "副菜が確定しました。汁物の選択に進みますか？":
+            print(f"❌ 確認メッセージが正しくありません: {confirmation_message_sub}")
+            return False
+        
+        if next_stage_name_sub != "soup":
+            print(f"❌ next_stage_name が 'soup' になっていません: {next_stage_name_sub}")
+            return False
+        
+        print(f"✅ 確認ステップフラグ検証成功（副菜→汁物）")
+        
+        await wait_for_response_delay(2.0)
+        
+        # 6. 空白メッセージで自動遷移（汁物提案）
+        print(f"\n[ステップ5] 空白メッセージで汁物提案への自動遷移...")
+        print(f"📤 送信メッセージ: ' ' (空白のみ)")
+        
+        auto_transition_response_soup = client.send_chat_request(" ", sse_session_id=sse_session_id)
+        
+        if not auto_transition_response_soup or not auto_transition_response_soup.get("success"):
+            print(f"❌ 自動遷移リクエストが失敗しました: {auto_transition_response_soup}")
+            return False
+        
+        await wait_for_response_delay(5.0)
+        
+        # 汁物提案の確認
+        requires_selection_soup = auto_transition_response_soup.get("requires_selection", False)
+        if not requires_selection_soup:
+            print(f"❌ 自動遷移後のレスポンスが選択要求を返していません: {auto_transition_response_soup}")
+            return False
+        
+        if not verify_stage_transition(auto_transition_response_soup, "soup"):
+            return False
+        
+        success_soup, task_id_soup = verify_selection_response(auto_transition_response_soup, "soup")
+        if not success_soup or not task_id_soup:
+            print(f"❌ 汁物提案の選択要求が正しくありません")
+            return False
+        
+        print(f"✅ 自動遷移成功: 汁物提案が取得できました")
+        
+        # 7. 汁物を選択して完了確認
+        print(f"\n[ステップ6] 汁物を選択 (selection=1)...")
+        selection_response_soup = client.send_selection_request(
+            task_id=task_id_soup,
+            selection=1,
+            sse_session_id=sse_session_id
+        )
+        
+        if not selection_response_soup or not selection_response_soup.get("success"):
+            print(f"❌ 汁物選択リクエストが失敗しました: {selection_response_soup}")
+            return False
+        
+        await wait_for_response_delay(3.0)
+        
+        # 完了確認（汁物選択時は確認ステップなし）
+        requires_stage_confirmation_soup = selection_response_soup.get("requires_stage_confirmation", False)
+        if requires_stage_confirmation_soup:
+            print(f"⚠️ 汁物選択時に requires_stage_confirmation が True になっています（期待値: False）")
+            # これは想定外だが、テストを続行
+        
+        if verify_completion_response(selection_response_soup):
+            print(f"✅ 献立完成確認成功")
+            print(f"✅ 自動遷移検証テスト成功")
+            return True
+        else:
+            print(f"❌ 献立完成の検証に失敗しました")
+            return False
+        
+    except AssertionError as e:
+        print(f"❌ アサーションエラー: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+    except Exception as e:
+        print(f"❌ テスト実行エラー: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+# ============================================================================
+# Phase 3E: 段階的選択システムのテスト実行
+# ============================================================================
+
 async def run_stage_flow_test(client: IntegrationTestClient, test_case: TestCase) -> bool:
     """TC-001: 基本フローの段階的選択テスト"""
     print(f"\n{'='*60}")
@@ -1012,6 +1234,17 @@ TEST_CASES = [
         description="主菜を教えて→レンコンで→追加提案→副菜→追加提案→汁物→追加提案→完成→保存",
         test_type="complete_scenario"
     ),
+    
+    # ========================================================================
+    # Phase 3C-3 + UPDATE07: 自動遷移検証テスト
+    # ========================================================================
+    TestCase(
+        name="TC-003: 自動遷移検証（確認ステップ→空白メッセージ遷移）",
+        description="主菜選択→確認フラグ検証→空白メッセージで副菜提案自動遷移→副菜選択→確認フラグ検証→空白メッセージで汁物提案自動遷移→完了",
+        setup=setup_renkon_inventory,
+        expected_stages=["main", "sub", "soup"],
+        test_type="auto_transition"
+    ),
 ]
 
 
@@ -1029,6 +1262,8 @@ async def run_test_case(client: IntegrationTestClient, test_case: TestCase) -> b
         return await run_stage_flow_test(client, test_case)
     elif test_case.test_type == "complete_scenario":
         return await run_complete_scenario_test(client)
+    elif test_case.test_type == "auto_transition":
+        return await run_auto_transition_test(client, test_case)
     else:
         return await run_basic_test(client, test_case)
 
