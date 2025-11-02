@@ -55,6 +55,12 @@ class InventoryResponse(BaseModel):
     updated_at: str = Field(..., description="更新日時")
 
 
+class InventoryListResponse(BaseModel):
+    """在庫一覧レスポンス"""
+    success: bool = Field(..., description="成功フラグ")
+    data: List[InventoryResponse] = Field(..., description="在庫アイテムリスト")
+
+
 class ErrorResponse(BaseModel):
     """エラーレスポンス"""
     detail: str = Field(..., description="エラー詳細")

@@ -56,12 +56,45 @@ class InventoryCRUD:
             self.logger.error(f"❌ [CRUD] Failed to add item: {e}")
             return {"success": False, "error": str(e)}
     
-    async def get_all_items(self, client: Client, user_id: str) -> Dict[str, Any]:
-        """ユーザーの全在庫アイテムを取得"""
+    async def get_all_items(
+        self, 
+        client: Client, 
+        user_id: str,
+        sort_by: Optional[str] = "created_at",
+        sort_order: Optional[str] = "desc"
+    ) -> Dict[str, Any]:
+        """ユーザーの全在庫アイテムを取得
+        
+        Args:
+            client: Supabaseクライアント
+            user_id: ユーザーID
+            sort_by: ソート対象カラム (item_name, quantity, created_at, storage_location, expiry_date)
+            sort_order: ソート順序 (asc, desc)
+        """
         try:
-            self.logger.info(f"📋 [CRUD] Getting all items for user: {user_id}")
+            self.logger.info(f"📋 [CRUD] Getting all items for user: {user_id}, sort_by={sort_by}, sort_order={sort_order}")
             
-            result = client.table("inventory").select("*").eq("user_id", user_id).execute()
+            # ソート対象カラムの検証
+            valid_sort_columns = ["item_name", "quantity", "created_at", "storage_location", "expiry_date"]
+            if sort_by not in valid_sort_columns:
+                sort_by = "created_at"
+                self.logger.warning(f"⚠️ [CRUD] Invalid sort_by, using default: created_at")
+            
+            # ソート順序の検証
+            if sort_order not in ["asc", "desc"]:
+                sort_order = "desc"
+                self.logger.warning(f"⚠️ [CRUD] Invalid sort_order, using default: desc")
+            
+            # Supabaseクエリビルダー
+            query = client.table("inventory").select("*").eq("user_id", user_id)
+            
+            # ソート順を適用
+            if sort_order == "desc":
+                query = query.order(sort_by, desc=True)
+            else:
+                query = query.order(sort_by, desc=False)
+            
+            result = query.execute()
             
             self.logger.info(f"✅ [CRUD] Retrieved {len(result.data)} items")
             return {"success": True, "data": result.data}
