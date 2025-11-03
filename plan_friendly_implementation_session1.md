@@ -1,8 +1,12 @@
-# ヘルプ機能実装計画（plan_friendly.mdベース）
+# ヘルプ機能実装計画 - セッション1（バックエンド実装）
 
 ## 概要
 
 `plan_friendly.md`の内容を実装し、段階的にヘルプを掘り下げるユーザー体験を提供します。
+
+**セッション1の目標**: バックエンドのコア機能を実装する
+
+---
 
 ## ユーザー体験の設計思想
 
@@ -21,7 +25,7 @@
 
 ---
 
-## 実装計画
+## 実装計画（セッション1）
 
 ### 1. ヘルプハンドラの作成
 
@@ -263,17 +267,15 @@ class HelpHandler:
 
 ### 2. セッション状態管理の拡張
 
-**修正する場所**: `/app/Morizo-aiv2/services/session/models/base.py` または `/app/Morizo-aiv2/services/session/service.py`
+**修正する場所**: 
+- `/app/Morizo-aiv2/services/session/service.py`（ヘルプ状態管理メソッドの追加）
+- 既存の`ContextComponent`を利用（新規コンポーネントは作成しない）
 
-**実装内容**:
+**修正する内容**:
 
-セッション状態にヘルプ状態を追加：
+`SessionService`に以下のメソッドを追加:
 
 ```python
-# Sessionクラスに追加
-help_state: Optional[str] = None  # null, "overview", "detail_1", "detail_2", "detail_3", "detail_4"
-
-# SessionServiceにヘルプ状態管理メソッドを追加
 async def set_help_state(
     self,
     sse_session_id: str,
@@ -289,8 +291,8 @@ async def set_help_state(
     """
     session = await self.get_session(sse_session_id, user_id)
     if session:
-        session.set_help_state(help_state)
-        await self.update_session(sse_session_id, user_id, session)
+        session.set_context("help_state", help_state)
+        self.logger.info(f"💾 [SESSION] Help state set: {help_state}")
 
 async def get_help_state(
     self,
@@ -300,7 +302,7 @@ async def get_help_state(
     """ヘルプ状態を取得"""
     session = await self.get_session(sse_session_id, user_id)
     if session:
-        return session.get_help_state()
+        return session.get_context("help_state")
     return None
 
 async def clear_help_state(
@@ -310,19 +312,36 @@ async def clear_help_state(
 ) -> None:
     """ヘルプ状態をクリア（通常モードに戻る）"""
     await self.set_help_state(sse_session_id, user_id, None)
+    self.logger.info(f"🧹 [SESSION] Help state cleared")
 ```
 
-**修正の理由**: ヘルプの段階（全体概要→機能別詳細）を管理するため
+**修正の理由**: 
+- ヘルプの段階（全体概要→機能別詳細）を管理するため
+- 既存の`ContextComponent`を利用し、アーキテクチャに沿う
 
-**修正の影響**: セッション管理に新規フィールドとメソッドを追加（既存機能への影響は最小限）
+**修正の影響**: 
+- `SessionService`に新規メソッドを追加（既存メソッドへの影響なし）
+- セッションの`context`に新規キーを追加（既存キーへの影響なし）
 
 ---
 
 ### 3. TrueReactAgentにヘルプ検知機能を追加
 
-**修正する場所**: `/app/Morizo-aiv2/core/agent.py` の `process_request()` メソッド（約89行目付近）
+**修正する場所**: `/app/Morizo-aiv2/core/agent.py`
+- `process_request()`メソッド（約88行目付近）
+- 新規メソッドの追加
 
-**実装内容**:
+**修正する内容**:
+
+#### 3-1: インポートの追加
+
+```python
+from core.help_handler import HelpHandler
+```
+
+#### 3-2: `process_request()`メソッドの修正
+
+`process_request()`の先頭（`try`ブロック内、約88行目付近）に、確認応答処理の前にヘルプ処理を追加:
 
 ```python
 async def process_request(self, user_request: str, user_id: str, token: str, sse_session_id: Optional[str] = None, is_confirmation_response: bool = False) -> Dict[str, Any]:
@@ -357,13 +376,17 @@ async def process_request(self, user_request: str, user_id: str, token: str, sse
                 sse_session_id=sse_session_id,
                 user_id=user_id
             )
-            return {"response": response}
+            if response:
+                return {"response": response}
+            # responseがNoneの場合は通常処理に進む
         
         # ============================================================
         # 通常のタスク処理（既存の処理）
         # ============================================================
         # ... 既存のコード ...
 ```
+
+#### 3-3: 新規メソッドの追加
 
 **ヘルプキーワード検知メソッド**:
 
@@ -375,8 +398,7 @@ def _is_help_keyword(self, user_request: str) -> bool:
         "使い方を知りたい",
         "使い方を説明して",
         "ヘルプ",
-        "help",
-        "使い方"
+        "help"
     ]
     
     user_request_lower = user_request.strip().lower()
@@ -385,12 +407,6 @@ def _is_help_keyword(self, user_request: str) -> bool:
     # 「使い方」だけでは検知しない（誤検知防止）
     for keyword in help_keywords:
         if keyword in user_request_lower:
-            # 「使い方」単独の場合は、前後に特定の文字がある場合のみ検知
-            if keyword == "使い方":
-                # 「使い方を」や「使い方は」などの完全一致を要求
-                patterns = ["使い方を", "使い方は", "使い方について", "使い方って", "使い方 教えて"]
-                if not any(pattern in user_request_lower for pattern in patterns):
-                    continue
             return True
     
     return False
@@ -406,7 +422,7 @@ async def _handle_help_mode(
     help_handler: HelpHandler,
     sse_session_id: Optional[str],
     user_id: str
-) -> str:
+) -> Optional[str]:
     """ヘルプモードの処理
     
     Args:
@@ -417,9 +433,10 @@ async def _handle_help_mode(
         user_id: ユーザーID
     
     Returns:
-        ヘルプ応答文字列
+        ヘルプ応答文字列（通常処理に進む場合はNone）
     """
     user_request_stripped = user_request.strip()
+    self.logger.info(f"🔍 [HELP] Processing help mode: request='{user_request}', state={help_state}")
     
     # 数字入力の検知（1-4）
     if user_request_stripped.isdigit():
@@ -433,6 +450,7 @@ async def _handle_help_mode(
                     await self.session_service.set_help_state(
                         sse_session_id, user_id, f"detail_{detail_number}"
                     )
+                self.logger.info(f"📖 [HELP] Showing detail for feature {detail_number}")
                 return detail_response
     
     # ヘルプキーワードの検知（全体概要の表示）
@@ -442,6 +460,7 @@ async def _handle_help_mode(
             await self.session_service.set_help_state(
                 sse_session_id, user_id, "overview"
             )
+        self.logger.info(f"📖 [HELP] Showing overview")
         return help_handler.generate_overview()
     
     # 既にヘルプモードの場合（help_stateが設定されている）
@@ -456,19 +475,23 @@ async def _handle_help_mode(
                         await self.session_service.set_help_state(
                             sse_session_id, user_id, f"detail_{detail_number}"
                         )
+                    self.logger.info(f"📖 [HELP] Showing detail for feature {detail_number}")
                     return detail_response
         
         # ヘルプモード中に通常のチャット入力があった場合
         # ヘルプモードを終了して通常処理に進む
+        self.logger.info(f"🔄 [HELP] Exiting help mode for normal chat")
         if sse_session_id:
             await self.session_service.clear_help_state(sse_session_id, user_id)
         # Noneを返すと、通常のタスク処理に進む
+        return None
     
     # デフォルト: ヘルプモードを開始
     if sse_session_id:
         await self.session_service.set_help_state(
             sse_session_id, user_id, "overview"
         )
+    self.logger.info(f"📖 [HELP] Starting help mode")
     return help_handler.generate_overview()
 ```
 
@@ -478,75 +501,22 @@ async def _handle_help_mode(
 - 誤検知を避ける明確なキーワード判定
 
 **修正の影響**: 
-- 既存のリクエスト処理フローに条件分岐を追加（既存機能への影響は最小限）
+- `process_request()`に条件分岐を追加（既存処理は変更なし）
 - ヘルプモード中でも通常のチャット入力で復帰可能
-
----
-
-### 4. インポートの追加
-
-**修正する場所**: `/app/Morizo-aiv2/core/agent.py` のインポート部分
-
-**実装内容**:
-
-```python
-from core.help_handler import HelpHandler
-```
-
----
-
-## ユーザー体験フロー
-
-### シナリオ1: 初めてヘルプを使う
-
-1. ユーザー: 「使い方を教えて」
-2. システム: 全体概要を表示（`help_state: "overview"`）
-3. ユーザー: 「1」
-4. システム: 在庫管理機能の詳細を表示（`help_state: "detail_1"`）
-5. ユーザー: 「在庫を教えて」（通常のチャット入力）
-6. システム: ヘルプモードを終了して通常処理を実行（`help_state: null`）
-
-### シナリオ2: ヘルプから通常のチャットに復帰
-
-1. ユーザー: 「使い方を教えて」
-2. システム: 全体概要を表示（`help_state: "overview"`）
-3. ユーザー: 「大根を１本追加して」（通常のチャット入力）
-4. システム: ヘルプモードを自動的に終了し、在庫追加処理を実行（`help_state: null`）
-
-### シナリオ3: 複数の機能詳細を順番に見る
-
-1. ユーザー: 「使い方を教えて」
-2. システム: 全体概要を表示（`help_state: "overview"`）
-3. ユーザー: 「1」
-4. システム: 在庫管理機能の詳細を表示（`help_state: "detail_1"`）
-5. ユーザー: 「2」
-6. システム: 献立一括提案の詳細を表示（`help_state: "detail_2"`）
 
 ---
 
 ## 実装順序
 
-1. **ヘルプハンドラの作成**（修正1）
-   - `core/help_handler.py`を作成
-   - `plan_friendly.md`の内容を実装に反映
-
-2. **セッション状態管理の拡張**（修正2）
-   - `Session`クラスに`help_state`フィールドを追加
-   - `SessionService`にヘルプ状態管理メソッドを追加
-
-3. **TrueReactAgentにヘルプ検知機能を追加**（修正3）
-   - `_is_help_keyword()`メソッドを追加
-   - `_handle_help_mode()`メソッドを追加
-   - `process_request()`メソッドの先頭にヘルプ処理を追加
-
-4. **インポートの追加**（修正4）
-   - `HelpHandler`のインポートを追加
+1. **修正1**: ヘルプハンドラの作成
+2. **修正2**: セッション状態管理の拡張
+3. **修正3**: TrueReactAgentにヘルプ検知機能を追加
 
 ---
 
-## テスト項目
+## テスト項目（セッション1）
 
-### バックエンド
+### バックエンド（基本動作確認）
 
 1. **ヘルプ全体概要の表示**
    - 「使い方を教えて」で全体概要が表示されること
@@ -559,24 +529,23 @@ from core.help_handler import HelpHandler
    - 「4」で補助機能の詳細が表示されること
    - 各詳細表示時にセッション状態が正しく更新されること
 
-3. **ヘルプキーワードの検知**
+3. **ヘルプキーワードの検知（基本）**
    - 「使い方を教えて」で検知されること
-   - 「使い方」だけでは検知されないこと（誤検知防止）
-   - 「使い方を」で検知されること
+   - 「ヘルプ」で検知されること
 
-4. **通常のチャットへの復帰**
+4. **通常のチャットへの復帰（基本）**
    - ヘルプモード中に通常のチャット入力で自動的に復帰すること
    - 復帰時にセッション状態が `help_state: null` になること
 
 5. **セッション状態の管理**
    - ヘルプ状態が正しく保存・取得されること
-   - セッションがない場合でもヘルプが動作すること
+   - セッションがない場合でもヘルプが動作すること（応答は返す）
 
 ---
 
-## 注意事項
+## 注意事項（セッション1）
 
-1. **誤検知防止**: 「使い方」という単語だけでは検知しないよう、明確なキーワード判定を実装する
+1. **誤検知防止（基本実装）**: セッション1では基本的なキーワード判定を実装。精度向上はセッション2で実施
 
 2. **セッションなしの場合**: `sse_session_id`がない場合でも、ヘルプ機能は動作する（状態は保存されないが、応答は返す）
 
@@ -588,23 +557,16 @@ from core.help_handler import HelpHandler
 
 ---
 
-## 追加の改善案（将来）
+## セッション1完了後の状態
 
-1. **ヘルプ履歴**: ユーザーが見たヘルプの履歴を保存し、よく見る部分を優先表示
+- ✅ ヘルプハンドラが作成され、全てのヘルプ応答が生成可能
+- ✅ セッション状態でヘルプの段階を管理可能
+- ✅ 基本的なヘルプ機能が動作する（誤検知防止の精度向上はセッション2）
 
-2. **検索機能**: ヘルプ内容を検索できる機能
+## 次のセッション2で実施する内容
 
-3. **ショートカット**: 「1」だけでなく「在庫」「献立」などのキーワードでも詳細に遷移
-
-4. **コンテキストヘルプ**: エラー発生時や特定の状況で、関連するヘルプを自動表示
-
----
-
-## まとめ
-
-- **実装ファイル数**: 2ファイル（新規1、修正1）
-- **ヘルプ階層数**: 2階層（全体概要 → 機能別詳細）
-- **ユーザー体験**: 段階的で自然なヘルプの掘り下げ
-- **誤検知防止**: 明確なキーワード判定で実現
-- **柔軟性**: 通常のチャット入力でいつでも復帰可能
+- ヘルプキーワード検知の精度向上（誤検知防止の調整）
+- フロントエンドのプレースホルダー変更
+- 統合テスト
+- 最終動作確認
 
