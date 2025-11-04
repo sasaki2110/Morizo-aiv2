@@ -86,6 +86,18 @@ class TestCase:
     test_type: str = "basic"  # "basic" (Phase 2.5) or "stage_flow" (Phase 3E)
 
 
+@dataclass
+class HelpTestCase:
+    """ヘルプ機能テストケースデータクラス"""
+    name: str
+    description: str
+    messages: List[str]  # 送信するメッセージのリスト
+    expected_responses: List[Callable[[str], bool]]  # 応答検証関数のリスト
+    expected_help_states: List[Optional[str]]  # 期待されるヘルプ状態のリスト
+    setup: Optional[Callable] = None  # 事前準備関数
+    skip: bool = False
+
+
 class IntegrationTestClient:
     """統合テスト用のHTTPクライアント"""
     
@@ -992,6 +1004,110 @@ async def run_complete_scenario_test(client: IntegrationTestClient) -> bool:
 
 
 # ============================================================================
+# ヘルプ機能: 検証関数
+# ============================================================================
+
+def verify_help_overview_response(response_text: str) -> bool:
+    """ヘルプ全体概要の応答を検証"""
+    required_keywords = [
+        "4つの便利な機能",
+        "在庫管理",
+        "献立提案（一括）",
+        "献立提案（段階的）",
+        "便利な補助機能",
+        "1〜4の数字を入力"
+    ]
+    
+    for keyword in required_keywords:
+        if keyword not in response_text:
+            print(f"❌ 全体概要に必須キーワード '{keyword}' が見つかりません")
+            return False
+    
+    print("✅ ヘルプ全体概要の検証成功")
+    return True
+
+
+def verify_inventory_detail_response(response_text: str) -> bool:
+    """在庫管理機能の詳細応答を検証"""
+    required_keywords = [
+        "食材を追加する",
+        "食材を削除する",
+        "食材の数量などを変更する",
+        "在庫を確認する"
+    ]
+    
+    for keyword in required_keywords:
+        if keyword not in response_text:
+            print(f"❌ 在庫管理詳細に必須キーワード '{keyword}' が見つかりません")
+            return False
+    
+    print("✅ 在庫管理機能詳細の検証成功")
+    return True
+
+
+def verify_menu_bulk_detail_response(response_text: str) -> bool:
+    """献立一括提案機能の詳細応答を検証"""
+    required_keywords = [
+        "献立を教えて",
+        "新しい献立",
+        "過去の類似献立",
+        "主菜・副菜・汁物"
+    ]
+    
+    for keyword in required_keywords:
+        if keyword not in response_text:
+            print(f"❌ 献立一括提案詳細に必須キーワード '{keyword}' が見つかりません")
+            return False
+    
+    print("✅ 献立一括提案機能詳細の検証成功")
+    return True
+
+
+def verify_menu_staged_detail_response(response_text: str) -> bool:
+    """段階的提案機能の詳細応答を検証"""
+    required_keywords = [
+        "主菜を選ぶ",
+        "副菜を選ぶ",
+        "汁物を選ぶ",
+        "他の提案を見る"
+    ]
+    
+    for keyword in required_keywords:
+        if keyword not in response_text:
+            print(f"❌ 段階的提案詳細に必須キーワード '{keyword}' が見つかりません")
+            return False
+    
+    print("✅ 段階的提案機能詳細の検証成功")
+    return True
+
+
+def verify_auxiliary_detail_response(response_text: str) -> bool:
+    """補助機能の詳細応答を検証"""
+    required_keywords = [
+        "在庫一覧を確認する",
+        "レシピ履歴を確認する",
+        "ユーザープロフィール画面"
+    ]
+    
+    for keyword in required_keywords:
+        if keyword not in response_text:
+            print(f"❌ 補助機能詳細に必須キーワード '{keyword}' が見つかりません")
+            return False
+    
+    print("✅ 補助機能詳細の検証成功")
+    return True
+
+
+# 検証関数マッピング
+DETAIL_VERIFIERS = {
+    1: verify_inventory_detail_response,
+    2: verify_menu_bulk_detail_response,
+    3: verify_menu_staged_detail_response,
+    4: verify_auxiliary_detail_response
+}
+
+
+# ============================================================================
 # Phase 2.5: 基本機能のテスト実行
 # ============================================================================
 
@@ -1249,6 +1365,153 @@ TEST_CASES = [
 
 
 # ============================================================================
+# ヘルプ機能: テストケース
+# ============================================================================
+
+HELP_TEST_CASES = [
+    HelpTestCase(
+        name="TC-HELP-001: ヘルプ全体概要の表示",
+        description="「使い方を教えて」で全体概要が表示され、セッション状態が更新される",
+        messages=["使い方を教えて"],
+        expected_responses=[verify_help_overview_response],
+        expected_help_states=["overview"]
+    ),
+    
+    HelpTestCase(
+        name="TC-HELP-002: 在庫管理機能の詳細表示",
+        description="「1」で在庫管理機能の詳細が表示される",
+        messages=["使い方を教えて", "1"],
+        expected_responses=[verify_help_overview_response, verify_inventory_detail_response],
+        expected_help_states=["overview", "detail_1"]
+    ),
+    
+    HelpTestCase(
+        name="TC-HELP-003: 献立一括提案機能の詳細表示",
+        description="「2」で献立一括提案機能の詳細が表示される",
+        messages=["使い方を教えて", "2"],
+        expected_responses=[verify_help_overview_response, verify_menu_bulk_detail_response],
+        expected_help_states=["overview", "detail_2"]
+    ),
+    
+    HelpTestCase(
+        name="TC-HELP-004: 段階的提案機能の詳細表示",
+        description="「3」で段階的提案機能の詳細が表示される",
+        messages=["使い方を教えて", "3"],
+        expected_responses=[verify_help_overview_response, verify_menu_staged_detail_response],
+        expected_help_states=["overview", "detail_3"]
+    ),
+    
+    HelpTestCase(
+        name="TC-HELP-005: 補助機能の詳細表示",
+        description="「4」で補助機能の詳細が表示される",
+        messages=["使い方を教えて", "4"],
+        expected_responses=[verify_help_overview_response, verify_auxiliary_detail_response],
+        expected_help_states=["overview", "detail_4"]
+    ),
+    
+    HelpTestCase(
+        name="TC-HELP-006: 通常のチャットへの復帰",
+        description="ヘルプモード中に通常のチャット入力で自動的に復帰する",
+        messages=["使い方を教えて", "在庫を教えて"],
+        expected_responses=[verify_help_overview_response, lambda r: "在庫" in r or "食材" in r],  # 通常の応答
+        expected_help_states=["overview", None]  # 復帰時はNone
+    ),
+    
+    HelpTestCase(
+        name="TC-HELP-007: 複数の機能詳細を順番に見る",
+        description="1→2→3→4と順番に機能詳細を表示できる",
+        messages=["使い方を教えて", "1", "2", "3", "4"],
+        expected_responses=[
+            verify_help_overview_response,
+            verify_inventory_detail_response,
+            verify_menu_bulk_detail_response,
+            verify_menu_staged_detail_response,
+            verify_auxiliary_detail_response
+        ],
+        expected_help_states=["overview", "detail_1", "detail_2", "detail_3", "detail_4"]
+    ),
+    
+    HelpTestCase(
+        name="TC-HELP-008: ヘルプキーワード「ヘルプ」での検知",
+        description="「ヘルプ」でも全体概要が表示される",
+        messages=["ヘルプ"],
+        expected_responses=[verify_help_overview_response],
+        expected_help_states=["overview"]
+    ),
+]
+
+
+# ============================================================================
+# ヘルプ機能: テスト実行関数
+# ============================================================================
+
+async def run_help_test(client: IntegrationTestClient, test_case: HelpTestCase) -> bool:
+    """ヘルプ機能テストケースを実行"""
+    print(f"\n{'='*60}")
+    print(f"🧪 テスト: {test_case.name}")
+    print(f"📝 説明: {test_case.description}")
+    print(f"{'='*60}")
+    
+    if test_case.skip:
+        print(f"⏭️ テストをスキップ: {test_case.name}")
+        return True
+    
+    # テストケースの設定を検証（メッセージ数と期待される応答数が一致しているか）
+    if len(test_case.messages) != len(test_case.expected_responses):
+        print(f"❌ テストケース設定エラー: メッセージ数({len(test_case.messages)})と期待される応答数({len(test_case.expected_responses)})が一致しません")
+        return False
+    
+    try:
+        # 事前準備
+        if test_case.setup:
+            print(f"📋 事前準備を実行...")
+            await test_case.setup(client)
+            await wait_for_response_delay(1.0)
+        
+        sse_session_id = str(uuid.uuid4())
+        print(f"📝 生成したsse_session_id: {sse_session_id}")
+        
+        # 各メッセージを順番に送信
+        for i, message in enumerate(test_case.messages):
+            print(f"\n[ステップ{i+1}] メッセージ送信: '{message}'")
+            
+            response = client.send_chat_request(message, sse_session_id=sse_session_id)
+            
+            if not response:
+                print(f"❌ レスポンスがNoneです")
+                return False
+            
+            # レスポンスの構造を確認（successフィールドがない場合もある）
+            if "success" in response and not response.get("success"):
+                print(f"❌ レスポンスが失敗しています: {response}")
+                return False
+            
+            response_text = response.get("response", "")
+            if not response_text:
+                print(f"❌ レスポンステキストが空です")
+                return False
+            
+            print(f"📄 応答: {response_text[:200]}...")  # 最初の200文字を表示
+            
+            # 応答の検証（メッセージ数と期待される応答数は事前にチェック済み）
+            verifier = test_case.expected_responses[i]
+            if not verifier(response_text):
+                print(f"❌ 応答の検証に失敗しました（ステップ{i+1}）")
+                return False
+            
+            await wait_for_response_delay(2.0)
+        
+        print(f"✅ テスト成功: {test_case.name}")
+        return True
+        
+    except Exception as e:
+        print(f"❌ テスト実行エラー: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+# ============================================================================
 # メイン関数
 # ============================================================================
 
@@ -1291,9 +1554,31 @@ async def main():
     passed = 0
     failed = 0
     
+    # 通常のテストケースを実行
     for test_case in TEST_CASES:
         try:
             result = await run_test_case(client, test_case)
+            if result:
+                passed += 1
+            else:
+                failed += 1
+        except Exception as e:
+            print(f"❌ テスト実行エラー: {e}")
+            import traceback
+            traceback.print_exc()
+            failed += 1
+        
+        # テスト間で少し待機
+        await wait_for_response_delay(2.0)
+    
+    # ヘルプ機能のテストケースを実行
+    print(f"\n{'='*60}")
+    print(f"📚 ヘルプ機能テスト開始")
+    print(f"{'='*60}")
+    
+    for test_case in HELP_TEST_CASES:
+        try:
+            result = await run_help_test(client, test_case)
             if result:
                 passed += 1
             else:

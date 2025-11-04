@@ -21,6 +21,7 @@ from .handlers.selection_handler import SelectionHandler
 from .handlers.stage_manager import StageManager
 from services.confirmation_service import ConfirmationService
 from config.loggers import GenericLogger
+from core.help_handler import HelpHandler
 
 
 class TrueReactAgent:
@@ -89,6 +90,38 @@ class TrueReactAgent:
             self.logger.info(f"🎯 [AGENT] Starting request processing for user {user_id}")
             self.logger.info(f"📝 [AGENT] User request: '{user_request}'")
             self.logger.info(f"🔄 [AGENT] Is confirmation response: {is_confirmation_response}")
+            
+            # ============================================================
+            # ヘルプ機能の処理（通常のタスク処理より優先）
+            # ============================================================
+            help_handler = HelpHandler()
+            # セッションIDがなくても、ユーザーID単位でヘルプ状態を検索できる
+            help_state = await self.session_service.get_help_state(sse_session_id, user_id)
+            
+            # ヘルプキーワードの検知（誤検知防止のため、明確なキーワードのみ）
+            is_help_request = self._is_help_keyword(user_request)
+            
+            if is_help_request or help_state:
+                # ヘルプモードの処理
+                response = await self._handle_help_mode(
+                    user_request=user_request,
+                    help_state=help_state,
+                    help_handler=help_handler,
+                    sse_session_id=sse_session_id,
+                    user_id=user_id
+                )
+                if response:
+                    # ヘルプ応答の場合もSSE完了イベントを送信（モバイルアプリ対応）
+                    # HTTPレスポンスとSSE完了イベントの両方を返す
+                    if sse_session_id:
+                        task_chain_manager = TaskChainManager(sse_session_id)
+                        task_chain_manager.send_complete(response)
+                    return {"response": response}
+                # responseがNoneの場合は通常処理に進む
+            
+            # ============================================================
+            # 通常のタスク処理（既存の処理）
+            # ============================================================
             
             # Handle confirmation response if needed
             if is_confirmation_response and sse_session_id:
@@ -194,4 +227,111 @@ class TrueReactAgent:
         if self.selection_handler.process_request_callback is None:
             self._set_selection_handler_callbacks()
         return await self.selection_handler.process_user_selection(task_id, selection, sse_session_id, user_id, token, old_sse_session_id)
+    
+    def _is_help_keyword(self, user_request: str) -> bool:
+        """ヘルプキーワードを検知（誤検知防止）"""
+        help_keywords = [
+            "使い方を教えて",
+            "使い方を知りたい",
+            "使い方を説明して",
+            "ヘルプ",
+            "help"
+        ]
+        
+        user_request_lower = user_request.strip().lower()
+        
+        # 「使い方を教えて」などの明確な表現のみ検知
+        # 「使い方」だけでは検知しない（誤検知防止）
+        for keyword in help_keywords:
+            if keyword in user_request_lower:
+                # 「使い方」単独の場合は、前後に特定の文字がある場合のみ検知
+                # ただし、現在のhelp_keywordsには「使い方」単独は含まれていないため、
+                # この処理は将来の拡張に備えた実装
+                if keyword == "使い方":
+                    # 「使い方を」や「使い方は」などの完全一致を要求
+                    patterns = ["使い方を", "使い方は", "使い方について", "使い方って", "使い方 教えて"]
+                    if not any(pattern in user_request_lower for pattern in patterns):
+                        continue
+                return True
+        
+        return False
+    
+    async def _handle_help_mode(
+        self,
+        user_request: str,
+        help_state: Optional[str],
+        help_handler: HelpHandler,
+        sse_session_id: Optional[str],
+        user_id: str
+    ) -> Optional[str]:
+        """ヘルプモードの処理
+        
+        Args:
+            user_request: ユーザーのリクエスト
+            help_state: 現在のヘルプ状態（None, "overview", "detail_1-4"）
+            help_handler: HelpHandlerインスタンス
+            sse_session_id: SSEセッションID
+            user_id: ユーザーID
+        
+        Returns:
+            ヘルプ応答文字列（通常処理に進む場合はNone）
+        """
+        user_request_stripped = user_request.strip()
+        self.logger.info(f"🔍 [HELP] Processing help mode: request='{user_request}', state={help_state}")
+        
+        # 数字入力の検知（1-4）
+        if user_request_stripped.isdigit():
+            detail_number = int(user_request_stripped)
+            if 1 <= detail_number <= 4:
+                # 機能別詳細の表示
+                detail_response = help_handler.generate_detail(detail_number)
+                if detail_response:
+                    # セッション状態を更新
+                    if sse_session_id:
+                        await self.session_service.set_help_state(
+                            sse_session_id, user_id, f"detail_{detail_number}"
+                        )
+                    self.logger.info(f"📖 [HELP] Showing detail for feature {detail_number}")
+                    return detail_response
+        
+        # ヘルプキーワードの検知（全体概要の表示）
+        if self._is_help_keyword(user_request):
+            # セッション状態を更新
+            if sse_session_id:
+                await self.session_service.set_help_state(
+                    sse_session_id, user_id, "overview"
+                )
+            self.logger.info(f"📖 [HELP] Showing overview")
+            return help_handler.generate_overview()
+        
+        # 既にヘルプモードの場合（help_stateが設定されている）
+        if help_state:
+            # 数字入力を再度チェック（セッションから復元した場合）
+            if user_request_stripped.isdigit():
+                detail_number = int(user_request_stripped)
+                if 1 <= detail_number <= 4:
+                    detail_response = help_handler.generate_detail(detail_number)
+                    if detail_response:
+                        if sse_session_id:
+                            await self.session_service.set_help_state(
+                                sse_session_id, user_id, f"detail_{detail_number}"
+                            )
+                        self.logger.info(f"📖 [HELP] Showing detail for feature {detail_number}")
+                        return detail_response
+            
+            # ヘルプモード中に通常のチャット入力があった場合
+            # ヘルプモードを終了して通常処理に進む
+            self.logger.info(f"🔄 [HELP] Exiting help mode for normal chat")
+            if sse_session_id:
+                await self.session_service.clear_help_state(sse_session_id, user_id)
+            # Noneを返すと、通常のタスク処理に進む
+            return None
+        
+        # デフォルト: ヘルプモードを開始
+        if sse_session_id:
+            await self.session_service.set_help_state(
+                sse_session_id, user_id, "overview"
+            )
+        self.logger.info(f"📖 [HELP] Starting help mode")
+        return help_handler.generate_overview()
     

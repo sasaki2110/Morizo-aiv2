@@ -448,6 +448,102 @@ class SessionService:
             str: 献立カテゴリ（"japanese", "western", "chinese"）
         """
         return await self.stage.get_menu_category(sse_session_id)
+    
+    # ============================================================================
+    # グループ10: ヘルプ状態管理
+    # ============================================================================
+    # 
+    # このセクションの責任:
+    # - ヘルプ状態の設定（set_help_state）
+    # - ヘルプ状態の取得（get_help_state）
+    # - ヘルプ状態のクリア（clear_help_state）
+    # 
+    # 将来的な分割時の考慮事項:
+    # - 分割する場合はHelpStateManager等として独立させることが可能
+    # - 依存関係: context（グループ8）を使用
+    # ============================================================================
+    
+    async def set_help_state(
+        self,
+        sse_session_id: str,
+        user_id: str,
+        help_state: Optional[str]
+    ) -> None:
+        """ヘルプ状態を設定
+        
+        Args:
+            sse_session_id: SSEセッションID
+            user_id: ユーザーID
+            help_state: "overview", "detail_1", "detail_2", "detail_3", "detail_4", または None
+        """
+        session = await self.get_session(sse_session_id, user_id)
+        if not session:
+            # セッションが存在しない場合は作成
+            self.logger.info(f"🔧 [SESSION] Creating session for help state: {sse_session_id}")
+            session = await self.create_session(user_id, sse_session_id)
+        
+        if session:
+            session.set_context("help_state", help_state)
+            self.logger.info(f"💾 [SESSION] Help state set: {help_state}")
+        else:
+            self.logger.warning(f"⚠️ [SESSION] Failed to create session for help state setting: {sse_session_id}")
+    
+    async def get_help_state(
+        self,
+        sse_session_id: Optional[str],
+        user_id: str
+    ) -> Optional[str]:
+        """ヘルプ状態を取得
+        
+        Args:
+            sse_session_id: SSEセッションID（Noneの場合はユーザーID単位で検索）
+            user_id: ユーザーID
+        
+        Returns:
+            ヘルプ状態（"overview", "detail_1-4", または None）
+        """
+        self.logger.info(f"🔍 [SESSION] Getting help state: sse_session_id={sse_session_id}, user_id={user_id}")
+        
+        # まず指定されたセッションIDで検索
+        if sse_session_id:
+            session = await self.get_session(sse_session_id, user_id)
+            if session:
+                help_state = session.get_context("help_state", None)
+                if help_state:
+                    self.logger.info(f"✅ [SESSION] Help state retrieved from session {sse_session_id}: {help_state}")
+                    return help_state
+        
+        # セッションIDで見つからない場合、またはセッションIDがNoneの場合
+        # ユーザーID単位で最新のヘルプ状態を持つセッションを検索
+        if user_id and user_id in self.user_sessions:
+            user_sessions = self.user_sessions[user_id]
+            # 最新のアクセス時刻でソートして、ヘルプ状態を持つセッションを検索
+            for session_id, session in user_sessions.items():
+                if session_id != sse_session_id:  # 既にチェックしたセッションはスキップ
+                    help_state = session.get_context("help_state", None)
+                    if help_state:
+                        self.logger.info(f"✅ [SESSION] Help state retrieved from user's other session {session_id}: {help_state}")
+                        return help_state
+        
+        if sse_session_id:
+            self.logger.warning(f"⚠️ [SESSION] Session not found for help state retrieval: {sse_session_id}")
+        else:
+            self.logger.info(f"ℹ️ [SESSION] No help state found for user: {user_id}")
+        return None
+    
+    async def clear_help_state(
+        self,
+        sse_session_id: str,
+        user_id: str
+    ) -> None:
+        """ヘルプ状態をクリア（通常モードに戻る）
+        
+        Args:
+            sse_session_id: SSEセッションID
+            user_id: ユーザーID
+        """
+        await self.set_help_state(sse_session_id, user_id, None)
+        self.logger.info(f"🧹 [SESSION] Help state cleared")
 
 
 # ============================================================================
