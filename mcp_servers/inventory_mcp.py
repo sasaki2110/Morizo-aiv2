@@ -133,6 +133,7 @@ async def inventory_get(user_id: str, item_id: str, token: str = "") -> Dict[str
 async def inventory_update_by_id(
     user_id: str,
     item_id: str,
+    item_name: Optional[str] = None,
     quantity: Optional[float] = None,
     unit: Optional[str] = None,
     storage_location: Optional[str] = None,
@@ -146,7 +147,7 @@ async def inventory_update_by_id(
         client = get_authenticated_client(user_id, token)
         logger.info(f"🔐 [INVENTORY] Authenticated client created for user: {user_id}")
         
-        result = await crud.update_item_by_id(client, user_id, item_id, quantity, unit, storage_location, expiry_date)
+        result = await crud.update_item_by_id(client, user_id, item_id, item_name, quantity, unit, storage_location, expiry_date)
         logger.info(f"✅ [INVENTORY] inventory_update_by_id completed successfully")
         logger.debug(f"📊 [INVENTORY] Update by id result: {result}")
         

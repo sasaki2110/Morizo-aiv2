@@ -171,6 +171,7 @@ async def update_inventory_item(
             client=client,
             user_id=user_id,
             item_id=item_id,
+            item_name=request.item_name,
             quantity=request.quantity,
             unit=request.unit,
             storage_location=request.storage_location,

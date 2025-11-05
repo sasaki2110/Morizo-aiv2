@@ -276,6 +276,7 @@ class InventoryCRUD:
         client: Client, 
         user_id: str, 
         item_id: str,
+        item_name: Optional[str] = None,
         quantity: Optional[float] = None,
         unit: Optional[str] = None,
         storage_location: Optional[str] = None,
@@ -287,6 +288,8 @@ class InventoryCRUD:
             
             # 更新データの準備
             update_data = {}
+            if item_name is not None:
+                update_data["item_name"] = item_name
             if quantity is not None:
                 update_data["quantity"] = quantity
             if unit is not None:
