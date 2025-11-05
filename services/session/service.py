@@ -15,6 +15,7 @@ from .proposal_manager import ProposalManager
 from .candidate_manager import CandidateManager
 from .context_manager import ContextManager
 from .stage_manager import StageManager
+from .help_state_manager import HelpStateManager
 
 
 # ============================================================================
@@ -60,6 +61,7 @@ class SessionService:
             self.candidate = CandidateManager(self)
             self.context = ContextManager(self)
             self.stage = StageManager(self)
+            self.help_state = HelpStateManager(self)
     
     # ============================================================================
     # グループ2: 基本CRUD操作
@@ -181,10 +183,9 @@ class SessionService:
     # - 曖昧性解決の状態を取得（get_confirmation_state）
     # - 曖昧性解決の状態をクリア（clear_confirmation_state）
     # 
-    # 将来的な分割時の考慮事項:
-    # - 分割する場合はConfirmationManager等として独立させることが可能
-    # - 依存関係: get_session, create_session（グループ2）を使用
-    # - session.data['confirmation_state']を直接操作
+    # 実装詳細:
+    # - ConfirmationManagerに委譲（実装はconfirmation_manager.pyに移動済み）
+    # - 依存関係: ConfirmationManager（confirmation）を使用
     # ============================================================================
     
     async def save_confirmation_state(
@@ -244,10 +245,9 @@ class SessionService:
     # - 提案済みレシピをセッションに追加（add_proposed_recipes）
     # - 提案済みレシピをセッションから取得（get_proposed_recipes）
     # 
-    # 将来的な分割時の考慮事項:
-    # - 分割する場合はProposalManager等として独立させることが可能
-    # - 依存関係: _call_session_method, _call_session_void_method（グループ3）を使用
-    # - Sessionオブジェクトのadd_proposed_recipes, get_proposed_recipesメソッドを使用
+    # 実装詳細:
+    # - ProposalManagerに委譲（実装はproposal_manager.pyに移動済み）
+    # - 依存関係: ProposalManager（proposal）を使用
     # ============================================================================
     
     async def add_proposed_recipes(
@@ -289,10 +289,9 @@ class SessionService:
     # - 候補情報をセッションに保存（set_candidates）
     # - 候補情報をセッションから取得（get_candidates）
     # 
-    # 将来的な分割時の考慮事項:
-    # - 分割する場合はCandidateManager等として独立させることが可能
-    # - 依存関係: _call_session_method, _call_session_void_method（グループ3）を使用
-    # - Sessionオブジェクトのset_candidates, get_candidatesメソッドを使用
+    # 実装詳細:
+    # - CandidateManagerに委譲（実装はcandidate_manager.pyに移動済み）
+    # - 依存関係: CandidateManager（candidate）を使用
     # ============================================================================
     
     async def set_candidates(
@@ -334,10 +333,9 @@ class SessionService:
     # - セッションコンテキストを設定（set_session_context）
     # - セッションコンテキストを取得（get_session_context）
     # 
-    # 将来的な分割時の考慮事項:
-    # - 分割する場合はContextManager等として独立させることが可能
-    # - 依存関係: _call_session_method, _call_session_void_method（グループ3）を使用
-    # - Sessionオブジェクトのset_context, get_contextメソッドを使用
+    # 実装詳細:
+    # - ContextManagerに委譲（実装はcontext_manager.pyに移動済み）
+    # - 依存関係: ContextManager（context）を使用
     # ============================================================================
     
     async def set_session_context(
@@ -384,10 +382,9 @@ class SessionService:
     # - 使用済み食材を取得（get_used_ingredients）
     # - 献立カテゴリを取得（get_menu_category）
     # 
-    # 将来的な分割時の考慮事項:
-    # - 分割する場合はStageManager等として独立させることが可能
-    # - 依存関係: _call_session_method, _call_session_void_method（グループ3）を使用
-    # - Sessionオブジェクトの段階管理メソッド群を使用
+    # 実装詳細:
+    # - StageManagerに委譲（実装はstage_manager.pyに移動済み）
+    # - 依存関係: StageManager（stage）を使用
     # ============================================================================
     
     async def get_current_stage(self, sse_session_id: str) -> str:
@@ -458,9 +455,9 @@ class SessionService:
     # - ヘルプ状態の取得（get_help_state）
     # - ヘルプ状態のクリア（clear_help_state）
     # 
-    # 将来的な分割時の考慮事項:
-    # - 分割する場合はHelpStateManager等として独立させることが可能
-    # - 依存関係: context（グループ8）を使用
+    # 実装詳細:
+    # - HelpStateManagerに委譲（実装はhelp_state_manager.pyに移動済み）
+    # - 依存関係: HelpStateManager（help_state）を使用
     # ============================================================================
     
     async def set_help_state(
@@ -476,17 +473,7 @@ class SessionService:
             user_id: ユーザーID
             help_state: "overview", "detail_1", "detail_2", "detail_3", "detail_4", または None
         """
-        session = await self.get_session(sse_session_id, user_id)
-        if not session:
-            # セッションが存在しない場合は作成
-            self.logger.info(f"🔧 [SESSION] Creating session for help state: {sse_session_id}")
-            session = await self.create_session(user_id, sse_session_id)
-        
-        if session:
-            session.set_context("help_state", help_state)
-            self.logger.info(f"💾 [SESSION] Help state set: {help_state}")
-        else:
-            self.logger.warning(f"⚠️ [SESSION] Failed to create session for help state setting: {sse_session_id}")
+        return await self.help_state.set_help_state(sse_session_id, user_id, help_state)
     
     async def get_help_state(
         self,
@@ -502,34 +489,7 @@ class SessionService:
         Returns:
             ヘルプ状態（"overview", "detail_1-4", または None）
         """
-        self.logger.info(f"🔍 [SESSION] Getting help state: sse_session_id={sse_session_id}, user_id={user_id}")
-        
-        # まず指定されたセッションIDで検索
-        if sse_session_id:
-            session = await self.get_session(sse_session_id, user_id)
-            if session:
-                help_state = session.get_context("help_state", None)
-                if help_state:
-                    self.logger.info(f"✅ [SESSION] Help state retrieved from session {sse_session_id}: {help_state}")
-                    return help_state
-        
-        # セッションIDで見つからない場合、またはセッションIDがNoneの場合
-        # ユーザーID単位で最新のヘルプ状態を持つセッションを検索
-        if user_id and user_id in self.user_sessions:
-            user_sessions = self.user_sessions[user_id]
-            # 最新のアクセス時刻でソートして、ヘルプ状態を持つセッションを検索
-            for session_id, session in user_sessions.items():
-                if session_id != sse_session_id:  # 既にチェックしたセッションはスキップ
-                    help_state = session.get_context("help_state", None)
-                    if help_state:
-                        self.logger.info(f"✅ [SESSION] Help state retrieved from user's other session {session_id}: {help_state}")
-                        return help_state
-        
-        if sse_session_id:
-            self.logger.warning(f"⚠️ [SESSION] Session not found for help state retrieval: {sse_session_id}")
-        else:
-            self.logger.info(f"ℹ️ [SESSION] No help state found for user: {user_id}")
-        return None
+        return await self.help_state.get_help_state(sse_session_id, user_id)
     
     async def clear_help_state(
         self,
@@ -542,8 +502,7 @@ class SessionService:
             sse_session_id: SSEセッションID
             user_id: ユーザーID
         """
-        await self.set_help_state(sse_session_id, user_id, None)
-        self.logger.info(f"🧹 [SESSION] Help state cleared")
+        return await self.help_state.clear_help_state(sse_session_id, user_id)
 
 
 # ============================================================================
