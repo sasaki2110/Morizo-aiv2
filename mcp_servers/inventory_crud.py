@@ -55,6 +55,143 @@ class InventoryCRUD:
         except Exception as e:
             self.logger.error(f"❌ [CRUD] Failed to add item: {e}")
             return {"success": False, "error": str(e)}
+
+    async def add_items_bulk(
+        self,
+        client: Client,
+        user_id: str,
+        items: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """在庫にアイテムを一括追加
+        
+        Args:
+            client: Supabaseクライアント
+            user_id: ユーザーID
+            items: 在庫アイテムのリスト
+                [
+                    {
+                        "item_name": str,
+                        "quantity": float,
+                        "unit": str,
+                        "storage_location": Optional[str],
+                        "expiry_date": Optional[str]
+                    }
+                ]
+        
+        Returns:
+            {
+                "success": bool,
+                "total": int,
+                "success_count": int,
+                "error_count": int,
+                "errors": List[Dict[str, Any]]
+            }
+        """
+        try:
+            self.logger.info(f"📦 [CRUD] Adding {len(items)} items in bulk")
+            
+            if not items:
+                # 空のリストは正常なケース（登録するデータがないだけ）
+                return {
+                    "success": True,
+                    "total": 0,
+                    "success_count": 0,
+                    "error_count": 0,
+                    "errors": []
+                }
+            
+            # データ準備
+            data_list = []
+            for item in items:
+                data = {
+                    "user_id": user_id,
+                    "item_name": item.get("item_name"),
+                    "quantity": item.get("quantity"),
+                    "unit": item.get("unit", "個"),
+                    "storage_location": item.get("storage_location", "冷蔵庫")
+                }
+                
+                if item.get("expiry_date"):
+                    data["expiry_date"] = item["expiry_date"]
+                
+                data_list.append(data)
+            
+            # 一括挿入
+            try:
+                result = client.table("inventory").insert(data_list).execute()
+                
+                if result.data:
+                    success_count = len(result.data)
+                    self.logger.info(f"✅ [CRUD] {success_count} items added successfully")
+                    return {
+                        "success": True,
+                        "total": len(items),
+                        "success_count": success_count,
+                        "error_count": 0,
+                        "errors": []
+                    }
+                else:
+                    raise Exception("No data returned from insert")
+                    
+            except Exception as db_error:
+                # DBエラーの場合、個別に処理を試みる
+                self.logger.warning(f"⚠️ [CRUD] Bulk insert failed, trying individual inserts: {db_error}")
+                return await self._add_items_individually(client, user_id, items)
+                
+        except Exception as e:
+            self.logger.error(f"❌ [CRUD] Failed to add items in bulk: {e}")
+            return {
+                "success": False,
+                "total": len(items) if items else 0,
+                "success_count": 0,
+                "error_count": len(items) if items else 0,
+                "errors": [{"row": None, "item_name": None, "error": str(e)}]
+            }
+    
+    async def _add_items_individually(
+        self,
+        client: Client,
+        user_id: str,
+        items: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """個別にアイテムを追加（フォールバック）"""
+        success_count = 0
+        errors = []
+        
+        for idx, item in enumerate(items, 1):
+            try:
+                result = await self.add_item(
+                    client=client,
+                    user_id=user_id,
+                    item_name=item.get("item_name"),
+                    quantity=item.get("quantity"),
+                    unit=item.get("unit", "個"),
+                    storage_location=item.get("storage_location", "冷蔵庫"),
+                    expiry_date=item.get("expiry_date")
+                )
+                
+                if result.get("success"):
+                    success_count += 1
+                else:
+                    errors.append({
+                        "row": idx,
+                        "item_name": item.get("item_name"),
+                        "error": result.get("error", "Unknown error")
+                    })
+            except Exception as e:
+                errors.append({
+                    "row": idx,
+                    "item_name": item.get("item_name"),
+                    "error": str(e)
+                })
+        
+        return {
+            "success": success_count > 0,
+            "total": len(items),
+            "success_count": success_count,
+            "error_count": len(errors),
+            "errors": errors
+        }
     
     async def get_all_items(
         self, 

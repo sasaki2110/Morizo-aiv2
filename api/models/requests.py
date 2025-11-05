@@ -95,3 +95,18 @@ class MenuSaveRequest(BaseModel):
     """献立保存リクエスト"""
     sse_session_id: Optional[str] = Field(None, description="SSEセッションID（後方互換性のためオプショナル）")
     recipes: Optional[Dict[str, Any]] = Field(None, description="選択済みレシピ（main, sub, soup）。指定された場合はセッションIDよりも優先される")
+
+class CSVUploadError(BaseModel):
+    """CSVアップロードエラー情報"""
+    row: Optional[int] = Field(None, description="行番号（CSV行番号、空の場合はNone）")
+    item_name: Optional[str] = Field(None, description="アイテム名")
+    error: str = Field(..., description="エラーメッセージ")
+
+
+class CSVUploadResponse(BaseModel):
+    """CSVアップロードレスポンス"""
+    success: bool = Field(..., description="成功したかどうか")
+    total: int = Field(..., description="総件数")
+    success_count: int = Field(..., description="成功件数")
+    error_count: int = Field(..., description="エラー件数")
+    errors: List[CSVUploadError] = Field(default_factory=list, description="エラー詳細")
