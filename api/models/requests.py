@@ -110,3 +110,20 @@ class CSVUploadResponse(BaseModel):
     success_count: int = Field(..., description="成功件数")
     error_count: int = Field(..., description="エラー件数")
     errors: List[CSVUploadError] = Field(default_factory=list, description="エラー詳細")
+
+
+class OCRReceiptItem(BaseModel):
+    """OCR抽出アイテム"""
+    item_name: str = Field(..., description="アイテム名")
+    quantity: float = Field(..., description="数量")
+    unit: str = Field(..., description="単位")
+    storage_location: Optional[str] = Field(None, description="保管場所")
+    expiry_date: Optional[str] = Field(None, description="消費期限")
+
+
+class OCRReceiptResponse(BaseModel):
+    """OCRレシート解析レスポンス"""
+    success: bool = Field(..., description="成功したかどうか")
+    items: List[OCRReceiptItem] = Field(default_factory=list, description="抽出されたアイテムリスト")
+    registered_count: int = Field(..., description="登録された件数")
+    errors: List[str] = Field(default_factory=list, description="エラーメッセージ")

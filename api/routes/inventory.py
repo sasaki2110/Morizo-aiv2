@@ -6,9 +6,10 @@ API層 - 在庫ルート
 """
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
+import os
 from config.loggers import GenericLogger
-from ..models import InventoryResponse, InventoryListResponse, InventoryItemResponse, InventoryRequest, CSVUploadResponse
+from ..models import InventoryResponse, InventoryListResponse, InventoryItemResponse, InventoryRequest, CSVUploadResponse, OCRReceiptResponse
 from mcp_servers.inventory_crud import InventoryCRUD
 from mcp_servers.utils import get_authenticated_client
 
@@ -412,4 +413,157 @@ async def upload_csv_inventory(
     except Exception as e:
         logger.error(f"❌ [API] Unexpected error in upload_csv_inventory: {e}")
         raise HTTPException(status_code=500, detail="CSVアップロード処理でエラーが発生しました")
+
+
+def validate_image_file(image_bytes: bytes, filename: str) -> Tuple[bool, Optional[str]]:
+    """画像ファイルの検証"""
+    # ファイルサイズチェック（10MB制限）
+    max_size = 10 * 1024 * 1024  # 10MB
+    if len(image_bytes) > max_size:
+        return False, "ファイルサイズは10MB以下にしてください"
+    
+    # ファイル形式チェック
+    valid_extensions = ['.jpg', '.jpeg', '.png']
+    file_ext = os.path.splitext(filename.lower())[1]
+    
+    if file_ext not in valid_extensions:
+        return False, "JPEGまたはPNGファイルのみアップロード可能です"
+    
+    # 画像形式の検証（マジックナンバー）
+    if image_bytes.startswith(b'\xff\xd8\xff'):
+        # JPEG
+        return True, None
+    elif image_bytes.startswith(b'\x89PNG\r\n\x1a\n'):
+        # PNG
+        return True, None
+    else:
+        return False, "画像ファイルの形式が正しくありません"
+
+
+@router.post("/inventory/ocr-receipt", response_model=OCRReceiptResponse)
+async def ocr_receipt(
+    image: UploadFile = File(...),
+    http_request: Request = None
+):
+    """レシート画像をOCR解析して在庫データを抽出・登録"""
+    try:
+        logger.info(f"🔍 [API] OCR receipt request received: {image.filename}")
+        
+        # 1. 認証処理
+        authorization = http_request.headers.get("Authorization")
+        token = authorization[7:] if authorization and authorization.startswith("Bearer ") else ""
+        
+        user_info = getattr(http_request.state, 'user_info', None)
+        if not user_info:
+            logger.error("❌ [API] User info not found in request state")
+            raise HTTPException(status_code=401, detail="認証が必要です")
+        
+        user_id = user_info['user_id']
+        
+        # 2. 画像ファイルの検証
+        image_bytes = await image.read()
+        is_valid, error_message = validate_image_file(image_bytes, image.filename)
+        
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=error_message)
+        
+        # 3. OCR解析
+        from services.ocr_service import OCRService
+        
+        ocr_service = OCRService()
+        ocr_result = await ocr_service.analyze_receipt_image(image_bytes)
+        
+        if not ocr_result.get("success"):
+            # OCR解析失敗の場合は400エラーとして返す（クライアント側の問題）
+            error_message = ocr_result.get("error", "OCR解析に失敗しました")
+            logger.error(f"❌ [API] OCR解析失敗: {error_message}")
+            raise HTTPException(
+                status_code=400,
+                detail=error_message
+            )
+        
+        items = ocr_result.get("items", [])
+        
+        if not items:
+            return {
+                "success": True,
+                "items": [],
+                "registered_count": 0,
+                "errors": ["レシートから在庫情報を抽出できませんでした"]
+            }
+        
+        # 4. データバリデーション
+        validated_items = []
+        validation_errors = []
+        
+        for idx, item in enumerate(items, 1):
+            try:
+                # 必須項目チェック
+                if not item.get("item_name") or not str(item.get("item_name")).strip():
+                    validation_errors.append(f"行{idx}: アイテム名が空です")
+                    continue
+                
+                if item.get("quantity") is None:
+                    validation_errors.append(f"行{idx}: 数量が指定されていません")
+                    continue
+                
+                # 数量の検証
+                try:
+                    quantity = float(item["quantity"])
+                    if quantity <= 0:
+                        validation_errors.append(f"行{idx}: 数量は0より大きい値が必要です")
+                        continue
+                except (ValueError, TypeError):
+                    validation_errors.append(f"行{idx}: 数量が数値ではありません")
+                    continue
+                
+                # 単位のデフォルト値
+                unit = item.get("unit", "個")
+                
+                validated_items.append({
+                    "item_name": str(item["item_name"]).strip(),
+                    "quantity": quantity,
+                    "unit": str(unit).strip(),
+                    "storage_location": item.get("storage_location", "冷蔵庫"),
+                    "expiry_date": item.get("expiry_date")
+                })
+                
+            except Exception as e:
+                validation_errors.append(f"行{idx}: データ処理エラー - {str(e)}")
+        
+        # 5. 在庫登録（バリデーション通過したアイテムのみ）
+        registered_count = 0
+        if validated_items:
+            try:
+                client = get_authenticated_client(user_id, token)
+                crud = InventoryCRUD()
+                result = await crud.add_items_bulk(client, user_id, validated_items)
+                
+                if result.get("success"):
+                    registered_count = result.get("success_count", 0)
+                    # DBエラーもvalidation_errorsに追加
+                    if result.get("errors"):
+                        validation_errors.extend([
+                            f"DBエラー: {err.get('error', 'Unknown error')}"
+                            for err in result.get("errors", [])
+                        ])
+                else:
+                    validation_errors.append("在庫登録に失敗しました")
+                    
+            except Exception as e:
+                logger.error(f"❌ [API] Failed to register inventory: {e}")
+                validation_errors.append(f"在庫登録エラー: {str(e)}")
+        
+        return {
+            "success": True,
+            "items": validated_items,
+            "registered_count": registered_count,
+            "errors": validation_errors
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ [API] Unexpected error in ocr_receipt: {e}")
+        raise HTTPException(status_code=500, detail="OCR処理でエラーが発生しました")
 
