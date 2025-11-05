@@ -532,27 +532,31 @@ async def ocr_receipt(
                 validation_errors.append(f"行{idx}: データ処理エラー - {str(e)}")
         
         # 5. 在庫登録（バリデーション通過したアイテムのみ）
+        # 【コメントアウト】フロントエンドで選択したアイテムのみを登録するため、自動登録は無効化
+        # registered_count = 0
+        # if validated_items:
+        #     try:
+        #         client = get_authenticated_client(user_id, token)
+        #         crud = InventoryCRUD()
+        #         result = await crud.add_items_bulk(client, user_id, validated_items)
+        #         
+        #         if result.get("success"):
+        #             registered_count = result.get("success_count", 0)
+        #             # DBエラーもvalidation_errorsに追加
+        #             if result.get("errors"):
+        #                 validation_errors.extend([
+        #                     f"DBエラー: {err.get('error', 'Unknown error')}"
+        #                     for err in result.get("errors", [])
+        #                 ])
+        #         else:
+        #             validation_errors.append("在庫登録に失敗しました")
+        #             
+        #     except Exception as e:
+        #         logger.error(f"❌ [API] Failed to register inventory: {e}")
+        #         validation_errors.append(f"在庫登録エラー: {str(e)}")
+        
+        # フロントエンドで登録するため、registered_countは常に0
         registered_count = 0
-        if validated_items:
-            try:
-                client = get_authenticated_client(user_id, token)
-                crud = InventoryCRUD()
-                result = await crud.add_items_bulk(client, user_id, validated_items)
-                
-                if result.get("success"):
-                    registered_count = result.get("success_count", 0)
-                    # DBエラーもvalidation_errorsに追加
-                    if result.get("errors"):
-                        validation_errors.extend([
-                            f"DBエラー: {err.get('error', 'Unknown error')}"
-                            for err in result.get("errors", [])
-                        ])
-                else:
-                    validation_errors.append("在庫登録に失敗しました")
-                    
-            except Exception as e:
-                logger.error(f"❌ [API] Failed to register inventory: {e}")
-                validation_errors.append(f"在庫登録エラー: {str(e)}")
         
         return {
             "success": True,
