@@ -141,3 +141,16 @@ class IngredientDeleteRequest(BaseModel):
     """食材削除リクエスト"""
     date: str = Field(..., description="日付（YYYY-MM-DD形式）")
     ingredients: List[IngredientDeleteItem] = Field(..., description="削除対象食材リスト")
+
+
+class OCRMappingRequest(BaseModel):
+    """OCR変換テーブル登録リクエスト"""
+    original_name: str = Field(..., description="OCRで読み取られた元の名前", min_length=1, max_length=255)
+    normalized_name: str = Field(..., description="正規化後の名前", min_length=1, max_length=255)
+
+
+class OCRMappingResponse(BaseModel):
+    """OCR変換テーブル登録レスポンス"""
+    success: bool = Field(..., description="成功したかどうか")
+    message: str = Field(..., description="メッセージ")
+    mapping_id: Optional[str] = Field(None, description="登録されたマッピングID")

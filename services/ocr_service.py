@@ -242,6 +242,54 @@ class OCRService:
         
         return normalized
     
+    async def apply_item_mappings(
+        self,
+        items: List[Dict[str, Any]],
+        client: Any,
+        user_id: str
+    ) -> List[Dict[str, Any]]:
+        """
+        OCR結果に変換テーブルを適用
+        
+        Args:
+            items: OCR解析結果のアイテムリスト
+            client: Supabaseクライアント
+            user_id: ユーザーID
+            
+        Returns:
+            変換テーブル適用後のアイテムリスト
+        """
+        try:
+            from mcp_servers.ocr_mapping_crud import OCRMappingCRUD
+            
+            mapping_crud = OCRMappingCRUD()
+            
+            # 各アイテムのitem_nameを変換テーブルで検索
+            for item in items:
+                if "item_name" in item and item["item_name"]:
+                    original_name = item["item_name"]
+                    
+                    # 変換テーブルから取得
+                    mapping_result = await mapping_crud.get_mapping(
+                        client=client,
+                        user_id=user_id,
+                        original_name=original_name
+                    )
+                    
+                    if mapping_result.get("success") and mapping_result.get("data"):
+                        normalized_name = mapping_result["data"]["normalized_name"]
+                        if original_name != normalized_name:
+                            self.logger.debug(
+                                f"🔧 [OCR] Applied mapping: '{original_name}' -> '{normalized_name}'"
+                            )
+                            item["item_name"] = normalized_name
+                    
+        except Exception as e:
+            # 変換テーブル適用が失敗しても、既存の処理は継続
+            self.logger.warning(f"⚠️ [OCR] Failed to apply item mappings: {e}")
+        
+        return items
+    
     async def extract_inventory_items(
         self,
         image_bytes: bytes

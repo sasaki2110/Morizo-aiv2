@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from typing import Dict, Any, Optional, Tuple
 import os
 from config.loggers import GenericLogger
-from ..models import InventoryResponse, InventoryListResponse, InventoryItemResponse, InventoryRequest, CSVUploadResponse, OCRReceiptResponse
+from ..models import InventoryResponse, InventoryListResponse, InventoryItemResponse, InventoryRequest, CSVUploadResponse, OCRReceiptResponse, OCRMappingRequest, OCRMappingResponse
 from mcp_servers.inventory_crud import InventoryCRUD
 from mcp_servers.utils import get_authenticated_client
 
@@ -493,7 +493,19 @@ async def ocr_receipt(
                 "errors": ["レシートから在庫情報を抽出できませんでした"]
             }
         
-        # 4. データバリデーション
+        # 4. 変換テーブル適用
+        try:
+            client = get_authenticated_client(user_id, token)
+            logger.info(f"✅ [API] Authenticated client created for user: {user_id}")
+            
+            # 変換テーブルを適用
+            items = await ocr_service.apply_item_mappings(items, client, user_id)
+            logger.info(f"✅ [API] Applied item mappings to {len(items)} items")
+        except Exception as e:
+            # 変換テーブル適用が失敗しても、既存の処理は継続
+            logger.warning(f"⚠️ [API] Failed to apply item mappings: {e}")
+        
+        # 5. データバリデーション
         validated_items = []
         validation_errors = []
         
@@ -571,4 +583,65 @@ async def ocr_receipt(
     except Exception as e:
         logger.error(f"❌ [API] Unexpected error in ocr_receipt: {e}")
         raise HTTPException(status_code=500, detail="OCR処理でエラーが発生しました")
+
+
+@router.post("/inventory/ocr-mapping", response_model=OCRMappingResponse)
+async def add_ocr_mapping(
+    request: OCRMappingRequest,
+    http_request: Request = None
+):
+    """OCR変換テーブルに登録"""
+    try:
+        logger.info(f"🔍 [API] OCR mapping request received: '{request.original_name}' -> '{request.normalized_name}'")
+        
+        # 1. 認証処理
+        authorization = http_request.headers.get("Authorization")
+        token = authorization[7:] if authorization and authorization.startswith("Bearer ") else ""
+        
+        user_info = getattr(http_request.state, 'user_info', None)
+        if not user_info:
+            logger.error("❌ [API] User info not found in request state")
+            raise HTTPException(status_code=401, detail="認証が必要です")
+        
+        user_id = user_info['user_id']
+        
+        # 2. 認証済みSupabaseクライアントの作成
+        try:
+            client = get_authenticated_client(user_id, token)
+            logger.info(f"✅ [API] Authenticated client created for user: {user_id}")
+        except Exception as e:
+            logger.error(f"❌ [API] Failed to create authenticated client: {e}")
+            raise HTTPException(status_code=401, detail="認証に失敗しました")
+        
+        # 3. 変換テーブルに登録
+        from mcp_servers.ocr_mapping_crud import OCRMappingCRUD
+        
+        mapping_crud = OCRMappingCRUD()
+        result = await mapping_crud.add_mapping(
+            client=client,
+            user_id=user_id,
+            original_name=request.original_name,
+            normalized_name=request.normalized_name
+        )
+        
+        if not result.get("success"):
+            error_message = result.get("error", "変換テーブルへの登録に失敗しました")
+            logger.error(f"❌ [API] Failed to add OCR mapping: {error_message}")
+            raise HTTPException(status_code=500, detail=error_message)
+        
+        mapping_id = result.get("data", {}).get("id") if result.get("data") else None
+        
+        logger.info(f"✅ [API] OCR mapping added successfully: {mapping_id}")
+        
+        return {
+            "success": True,
+            "message": "変換テーブルに登録しました",
+            "mapping_id": mapping_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ [API] Unexpected error in add_ocr_mapping: {e}")
+        raise HTTPException(status_code=500, detail="変換テーブル登録処理でエラーが発生しました")
 
