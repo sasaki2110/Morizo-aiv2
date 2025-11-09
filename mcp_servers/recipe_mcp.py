@@ -282,21 +282,21 @@ async def search_recipe_from_web(
         tasks = [search_single_recipe(title) for title in recipe_titles]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
-        # 結果を分類別に整理
-        categorized_results = {
-            "llm_menu": {
-                "main_dish": {"title": "", "recipes": []},
-                "side_dish": {"title": "", "recipes": []},
-                "soup": {"title": "", "recipes": []}
-            },
-            "rag_menu": {
-                "main_dish": {"title": "", "recipes": []},
-                "side_dish": {"title": "", "recipes": []},
-                "soup": {"title": "", "recipes": []}
-            }
-        }
+        # 単一カテゴリ提案かどうかを判定（主菜・副菜・汁物のいずれか1つのみ）
+        # menu_categoriesがNone、空、または単一カテゴリのみの場合
+        single_category = None
+        if not menu_categories or len(menu_categories) == 0:
+            # menu_categoriesが指定されていない場合は、デフォルトでmain_dishとみなす
+            single_category = "main_dish"
+        elif len(set(menu_categories)) == 1:
+            # すべて同じカテゴリの場合
+            single_category = menu_categories[0]
+        
+        is_single_category = single_category in ["main_dish", "side_dish", "soup"]
         
         successful_searches = 0
+        # 単一カテゴリ提案の場合は、候補リストの順序に合わせてレシピを配置
+        single_category_recipes = []
         
         for i, result in enumerate(results):
             if isinstance(result, Exception):
@@ -306,35 +306,75 @@ async def search_recipe_from_web(
                 recipes = result.get("data", [])
                 successful_searches += 1
                 logger.info(f"✅ [RECIPE] Found {len(recipes)} recipes for '{recipe_titles[i]}'")
-                
-                # 分類情報を取得
-                category = "main_dish"  # デフォルト
-                source = "llm_menu"     # デフォルト
-                
-                if menu_categories and i < len(menu_categories):
-                    category = menu_categories[i]
-                
-                # 検索元の判定（簡易版：インデックスベース）
-                if menu_source == "rag" or (menu_source == "mixed" and i >= len(recipe_titles) // 2):
-                    source = "rag_menu"
-                
-                # 結果を分類
-                categorized_results[source][category] = {
-                    "title": recipe_titles[i],
-                    "recipes": recipes
-                }
+                # 単一カテゴリ提案の場合は、各レシピタイトルに対応する最初のレシピを取得
+                # （候補リストの順序と一致させるため）
+                if is_single_category:
+                    if recipes:
+                        single_category_recipes.append(recipes[0])
             else:
                 logger.error(f"❌ [RECIPE] Search failed for '{recipe_titles[i]}': {result.get('error')}")
         
         logger.info(f"✅ [RECIPE] Recipe search completed: {successful_searches}/{len(recipe_titles)} successful")
         
-        result = {
-            "success": True,
-            "data": categorized_results,
-            "total_count": sum(len(cat["recipes"]) for menu in categorized_results.values() for cat in menu.values()),
-            "searches_completed": successful_searches,
-            "total_searches": len(recipe_titles)
-        }
+        # 単一カテゴリ提案の場合はシンプルな構造を返す
+        if is_single_category:
+            result = {
+                "success": True,
+                "data": {
+                    single_category: {
+                        "title": recipe_titles[0] if recipe_titles else "",
+                        "recipes": single_category_recipes
+                    }
+                },
+                "total_count": len(single_category_recipes),
+                "searches_completed": successful_searches,
+                "total_searches": len(recipe_titles)
+            }
+        else:
+            # 一括提案の場合はllm_menu/rag_menu構造を返す
+            categorized_results = {
+                "llm_menu": {
+                    "main_dish": {"title": "", "recipes": []},
+                    "side_dish": {"title": "", "recipes": []},
+                    "soup": {"title": "", "recipes": []}
+                },
+                "rag_menu": {
+                    "main_dish": {"title": "", "recipes": []},
+                    "side_dish": {"title": "", "recipes": []},
+                    "soup": {"title": "", "recipes": []}
+                }
+            }
+            
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    continue
+                elif result.get("success"):
+                    recipes = result.get("data", [])
+                    
+                    # 分類情報を取得
+                    category = "main_dish"  # デフォルト
+                    source = "llm_menu"     # デフォルト
+                    
+                    if menu_categories and i < len(menu_categories):
+                        category = menu_categories[i]
+                    
+                    # 検索元の判定（簡易版：インデックスベース）
+                    if menu_source == "rag" or (menu_source == "mixed" and i >= len(recipe_titles) // 2):
+                        source = "rag_menu"
+                    
+                    # 結果を分類
+                    categorized_results[source][category] = {
+                        "title": recipe_titles[i],
+                        "recipes": recipes
+                    }
+            
+            result = {
+                "success": True,
+                "data": categorized_results,
+                "total_count": sum(len(cat["recipes"]) for menu in categorized_results.values() for cat in menu.values()),
+                "searches_completed": successful_searches,
+                "total_searches": len(recipe_titles)
+            }
         
         logger.info(f"✅ [RECIPE] search_recipe_from_web completed successfully")
         logger.debug(f"📊 [RECIPE] Web search result: {result}")

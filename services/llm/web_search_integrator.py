@@ -35,7 +35,16 @@ class WebSearchResultIntegrator:
             if task4_data and task4_data.get("success") and task4_data.get("data"):
                 web_data = task4_data["data"]
                 # Web検索結果からレシピリストを抽出
-                if "rag_menu" in web_data and "main_dish" in web_data["rag_menu"]:
+                # 単一カテゴリ提案の場合: {"main_dish": {...}}, {"side_dish": {...}}, {"soup": {...}}
+                # 一括提案の場合: {"llm_menu": {...}, "rag_menu": {...}}
+                # 主菜・副菜・汁物のいずれかが直接存在する場合（単一カテゴリ提案）
+                for category in ["main_dish", "side_dish", "soup"]:
+                    if category in web_data and isinstance(web_data[category], dict) and "recipes" in web_data[category]:
+                        recipes = web_data[category].get("recipes", [])
+                        web_search_results = recipes
+                        break
+                # 一括提案の場合（後方互換性のため）
+                if not web_search_results and "rag_menu" in web_data and "main_dish" in web_data["rag_menu"]:
                     recipes = web_data["rag_menu"]["main_dish"].get("recipes", [])
                     web_search_results = recipes
             
