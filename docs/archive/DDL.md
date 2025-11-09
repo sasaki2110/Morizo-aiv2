@@ -28,6 +28,8 @@ CREATE TABLE recipe_historys (
     cooked_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     rating INTEGER CHECK (rating BETWEEN 1 AND 5), -- 評価
     notes TEXT, -- メモ
+    ingredients JSONB, -- 利用食材リスト（食材削除機能用）
+    ingredients_deleted BOOLEAN DEFAULT FALSE, -- 食材削除済みフラグ
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -141,6 +143,8 @@ CREATE POLICY "Users can delete own settings" ON user_settings
 - **cooked_at**: 実際に作った日時
 - **rating**: 評価（1-5段階）
 - **notes**: メモ・感想
+- **ingredients**: 利用食材リスト（JSONB形式、食材削除機能用）
+- **ingredients_deleted**: 食材削除済みフラグ（BOOLEAN）
 
 ### user_settings テーブル
 - **preferences**: JSONB形式でユーザー設定
