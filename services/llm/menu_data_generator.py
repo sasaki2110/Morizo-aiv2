@@ -19,12 +19,31 @@ class MenuDataGenerator:
         self.logger = GenericLogger("service", "llm.response.menu_generator")
         self.utils = ResponseProcessorUtils()
     
-    def generate_menu_data_json(self, web_data: Any) -> Optional[Dict[str, Any]]:
+    def generate_menu_data_json(
+        self, 
+        web_data: Any, 
+        ingredients_used: Optional[List[str]] = None,
+        main_dish_ingredients: Optional[List[str]] = None,
+        side_dish_ingredients: Optional[List[str]] = None,
+        soup_ingredients: Optional[List[str]] = None,
+        rag_ingredients_used: Optional[List[str]] = None,
+        rag_main_dish_ingredients: Optional[List[str]] = None,
+        rag_side_dish_ingredients: Optional[List[str]] = None,
+        rag_soup_ingredients: Optional[List[str]] = None
+    ) -> Optional[Dict[str, Any]]:
         """
         レシピデータをJSON形式に変換
         
         Args:
             web_data: Web検索結果データ
+            ingredients_used: LLMで生成された献立全体で使用された食材リスト（task2の結果から取得）
+            main_dish_ingredients: 主菜で使用された食材リスト（task2の結果から取得）
+            side_dish_ingredients: 副菜で使用された食材リスト（task2の結果から取得）
+            soup_ingredients: 汁物で使用された食材リスト（task2の結果から取得）
+            rag_ingredients_used: RAG検索で生成された献立全体で使用された食材リスト（task3の結果から取得）
+            rag_main_dish_ingredients: RAG検索の主菜で使用された食材リスト（task3の結果から取得）
+            rag_side_dish_ingredients: RAG検索の副菜で使用された食材リスト（task3の結果から取得）
+            rag_soup_ingredients: RAG検索の汁物で使用された食材リスト（task3の結果から取得）
         
         Returns:
             仕様書に準拠したJSON形式のレシピデータ
@@ -51,7 +70,30 @@ class MenuDataGenerator:
                     continue
                     
                 menu = data[menu_type]
-                self.extract_recipes_by_type(menu, menu_type, menu_data, data)
+                # 各レシピごとの食材情報を設定
+                if menu_type == 'llm_menu':
+                    self.extract_recipes_by_type(
+                        menu, 
+                        menu_type, 
+                        menu_data, 
+                        data, 
+                        main_dish_ingredients=main_dish_ingredients,
+                        side_dish_ingredients=side_dish_ingredients,
+                        soup_ingredients=soup_ingredients,
+                        ingredients_used=ingredients_used
+                    )
+                else:
+                    # rag_menuの場合はRAG検索結果から食材情報を取得
+                    self.extract_recipes_by_type(
+                        menu, 
+                        menu_type, 
+                        menu_data, 
+                        data, 
+                        main_dish_ingredients=rag_main_dish_ingredients,
+                        side_dish_ingredients=rag_side_dish_ingredients,
+                        soup_ingredients=rag_soup_ingredients,
+                        ingredients_used=rag_ingredients_used
+                    )
             
             # 空のセクションをチェック
             if not self.has_menu_data(menu_data):
@@ -93,7 +135,17 @@ class MenuDataGenerator:
             }
         }
     
-    def extract_recipes_by_type(self, menu: Dict[str, Any], menu_type: str, menu_data: Dict[str, Any], web_data: Dict[str, Any]) -> None:
+    def extract_recipes_by_type(
+        self, 
+        menu: Dict[str, Any], 
+        menu_type: str, 
+        menu_data: Dict[str, Any], 
+        web_data: Dict[str, Any], 
+        main_dish_ingredients: Optional[List[str]] = None,
+        side_dish_ingredients: Optional[List[str]] = None,
+        soup_ingredients: Optional[List[str]] = None,
+        ingredients_used: Optional[List[str]] = None
+    ) -> None:
         """
         タイプ別レシピ抽出
         
@@ -102,6 +154,10 @@ class MenuDataGenerator:
             menu_type: メニュータイプ（llm_menu または rag_menu）
             menu_data: 構築中のメニューデータ
             web_data: 元のWebデータ
+            main_dish_ingredients: 主菜で使用された食材リスト（llm_menuの場合のみ）
+            side_dish_ingredients: 副菜で使用された食材リスト（llm_menuの場合のみ）
+            soup_ingredients: 汁物で使用された食材リスト（llm_menuの場合のみ）
+            ingredients_used: 献立全体で使用された食材リスト（llm_menuの場合のみ、後方互換性のため）
         """
         # カテゴリ別に処理
         for dish_type in ['main_dish', 'side_dish', 'soup']:
@@ -125,21 +181,48 @@ class MenuDataGenerator:
                 urls = self.extract_recipe_urls(recipe)
                 category_urls.extend(urls)  # 全URLを統合
             
+            # カテゴリに応じた食材を取得
+            category_ingredients = None
+            if dish_type == 'main_dish':
+                category_ingredients = main_dish_ingredients
+            elif dish_type == 'side_dish':
+                category_ingredients = side_dish_ingredients
+            elif dish_type == 'soup':
+                category_ingredients = soup_ingredients
+            
             # カテゴリにURLがある場合は1つのレシピオブジェクトとして追加
             if category_urls:
-                self.classify_and_add_recipe(category_urls, category, emoji, menu_type, web_data, menu_data)
+                self.classify_and_add_recipe(
+                    category_urls, 
+                    category, 
+                    emoji, 
+                    menu_type, 
+                    web_data, 
+                    menu_data, 
+                    category_ingredients
+                )
     
-    def classify_and_add_recipe(self, category_urls: List[Dict[str, str]], category: str, emoji: str, menu_type: str, web_data: Dict[str, Any], menu_data: Dict[str, Any]) -> None:
+    def classify_and_add_recipe(
+        self, 
+        category_urls: List[Dict[str, str]], 
+        category: str, 
+        emoji: str, 
+        menu_type: str, 
+        web_data: Dict[str, Any], 
+        menu_data: Dict[str, Any], 
+        category_ingredients: Optional[List[str]] = None
+    ) -> None:
         """
         レシピ分類・追加
         
         Args:
             category_urls: カテゴリのURLリスト
-            category: カテゴリ名
+            category: カテゴリ名（'main', 'side', 'soup'）
             emoji: 絵文字
-            menu_type: メニュータイプ
+            menu_type: メニュータイプ（llm_menu または rag_menu）
             web_data: 元のWebデータ
             menu_data: 構築中のメニューデータ
+            category_ingredients: このカテゴリで使用された食材リスト（llm_menuの場合のみ）
         """
         # 実際の献立提案からタイトルを生成
         actual_menu_type = 'llm' if menu_type == 'llm_menu' else 'rag'
@@ -153,6 +236,11 @@ class MenuDataGenerator:
             "category": category,
             "urls": category_urls
         }
+        
+        # category_ingredientsがある場合はingredientsフィールドを追加（llm_menuとrag_menuの両方）
+        if category_ingredients:
+            combined_recipe["ingredients"] = category_ingredients
+            self.logger.info(f"✅ [MenuDataGenerator] Added ingredients to recipe '{combined_title}' (category: {category}, menu_type: {menu_type}): {category_ingredients}")
         
         # innovative または traditional に分類
         target_section = self.classify_recipe(combined_recipe, menu_type)

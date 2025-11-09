@@ -41,6 +41,15 @@ async def save_menu(request: MenuSaveRequest, http_request: Request):
             # フロントエンドから直接送信されたレシピ情報を使用
             selected_recipes = request.recipes
             logger.info(f"🔍 [API] Using recipes from request: main={selected_recipes.get('main') is not None}, sub={selected_recipes.get('sub') is not None}, soup={selected_recipes.get('soup') is not None}")
+            # デバッグログ: フロントエンドから送信されたレシピデータの内容を確認
+            for category in ["main", "sub", "soup"]:
+                recipe = selected_recipes.get(category)
+                if recipe:
+                    ingredients = recipe.get("ingredients", [])
+                    has_ingredients = "ingredients" in recipe and ingredients
+                    logger.info(f"🔍 [API] Recipe data from frontend ({category}): title='{recipe.get('title', 'N/A')}', source='{recipe.get('source', 'N/A')}', has_ingredients={has_ingredients}, ingredients={ingredients}")
+                else:
+                    logger.info(f"🔍 [API] Recipe data from frontend ({category}): None")
         elif request.sse_session_id:
             # セッションIDから選択済みレシピを取得（後方互換性）
             selected_recipes = await session_service.get_selected_recipes(request.sse_session_id)
@@ -118,10 +127,14 @@ async def save_menu(request: MenuSaveRequest, http_request: Request):
                 
                 # ingredientsを取得
                 ingredients = recipe.get("ingredients", [])
+                has_ingredients = "ingredients" in recipe and ingredients
                 if not ingredients:
                     ingredients = None  # 空リストの場合はNoneに
                 
-                logger.info(f"🔍 [API] Saving {category}: title='{prefixed_title}', source={recipe_source}→{db_source}, ingredients={ingredients}")
+                if has_ingredients:
+                    logger.info(f"✅ [API] Saving {category}: title='{prefixed_title}', source={recipe_source}→{db_source}, ingredients={recipe.get('ingredients', [])} ({len(recipe.get('ingredients', []))} items)")
+                else:
+                    logger.warning(f"⚠️ [API] Saving {category}: title='{prefixed_title}', source={recipe_source}→{db_source}, ingredients missing or empty (ingredients={ingredients})")
                 
                 # DBに保存
                 result = await crud.add_history(
@@ -223,6 +236,7 @@ async def get_menu_history(
         
         # 4. 日付ごとにグループ化
         history_by_date = {}
+        ingredients_deleted_by_date = {}  # 日付ごとのingredients_deletedフラグ
         category_prefix_map = {
             "main": "主菜: ",
             "sub": "副菜: ",
@@ -254,6 +268,11 @@ async def get_menu_history(
             
             if date_key not in history_by_date:
                 history_by_date[date_key] = []
+                ingredients_deleted_by_date[date_key] = []
+            
+            # ingredients_deletedフラグを収集
+            ingredients_deleted = item.get("ingredients_deleted", False)
+            ingredients_deleted_by_date[date_key].append(ingredients_deleted)
             
             # カテゴリを判定（タイトルのプレフィックスから）
             title = item.get("title", "")
@@ -275,16 +294,29 @@ async def get_menu_history(
                 history_id=item.get("id")
             ))
         
-        # 5. 日付順にソート（最新順）
+        # 5. 日付ごとのingredients_deletedフラグを判定（その日のすべてのレシピがTrueの場合のみTrue）
+        ingredients_deleted_flags = {}
+        for date_key, flags in ingredients_deleted_by_date.items():
+            # その日のすべてのレシピがingredients_deleted=Trueの場合のみTrue
+            ingredients_deleted_flags[date_key] = all(flags) if flags else False
+        
+        # 6. 日付順にソート（最新順）
         sorted_history = sorted(
-            [HistoryEntry(date=date, recipes=recipes) for date, recipes in history_by_date.items()],
+            [
+                HistoryEntry(
+                    date=date,
+                    recipes=recipes,
+                    ingredients_deleted=ingredients_deleted_flags.get(date, False)
+                )
+                for date, recipes in history_by_date.items()
+            ],
             key=lambda x: x.date,
             reverse=True
         )
         
         logger.info(f"✅ [API] Returning {len(sorted_history)} date entries with total {sum(len(entry.recipes) for entry in sorted_history)} recipes")
         
-        # 6. レスポンスを生成
+        # 7. レスポンスを生成
         return MenuHistoryResponse(
             success=True,
             data=sorted_history

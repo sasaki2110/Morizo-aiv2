@@ -73,6 +73,11 @@ async def adopt_recipe(request: RecipeAdoptionRequest, http_request: Request):
             try:
                 logger.info(f"🔍 [API] Processing recipe {i+1}/{len(request.recipes)}: {recipe.title}")
                 
+                # デバッグログ: フロントエンドから送信されたレシピデータの内容を確認
+                ingredients = recipe.ingredients if recipe.ingredients else None
+                has_ingredients = recipe.ingredients is not None and len(recipe.ingredients) > 0 if recipe.ingredients else False
+                logger.info(f"🔍 [API] Recipe data from frontend ({i+1}): title='{recipe.title}', category='{recipe.category}', menu_source='{recipe.menu_source}', has_ingredients={has_ingredients}, ingredients={ingredients}")
+                
                 # menu_source → source のマッピング
                 db_source = db_source_mapping.get(recipe.menu_source)
                 if not db_source:
@@ -82,10 +87,12 @@ async def adopt_recipe(request: RecipeAdoptionRequest, http_request: Request):
                 
                 logger.info(f"🔍 [API] Mapped source for recipe {i+1}: {recipe.menu_source} → {db_source}")
                 
-                # 新規追加: ingredientsを取得
-                ingredients = recipe.ingredients if recipe.ingredients else None
-                
                 # RecipeHistoryCRUD.add_history()を呼び出し
+                if has_ingredients:
+                    logger.info(f"✅ [API] Saving recipe {i+1} with {len(recipe.ingredients)} ingredients: {recipe.ingredients}")
+                else:
+                    logger.warning(f"⚠️ [API] Saving recipe {i+1} without ingredients (ingredients={ingredients})")
+                
                 result = await crud.add_history(
                     client=client,
                     user_id=user_id,
@@ -214,6 +221,7 @@ async def get_ingredient_delete_candidates(
         # 重複除去（順序を保持）
         unique_ingredients = list(dict.fromkeys(all_ingredients))
         logger.info(f"🔍 [API] Aggregated {len(unique_ingredients)} unique ingredients")
+        logger.info(f"🔍 [API] Unique ingredients list: {unique_ingredients}")
         
         # 6. 在庫一覧を取得
         inventory_crud = InventoryCRUD()
@@ -241,15 +249,25 @@ async def get_ingredient_delete_candidates(
                 inventory_normalized[normalized] = []
             inventory_normalized[normalized].append(inv_item)
         
+        # デバッグログ: 在庫名の正規化結果を確認
+        for normalized_name, items in inventory_normalized.items():
+            if len(items) > 1:
+                logger.info(f"🔍 [API] Multiple inventory items for normalized name '{normalized_name}': {len(items)} items")
+                for item in items:
+                    logger.info(f"  - ID: {item.get('id')}, Name: {item.get('item_name')}, Quantity: {item.get('quantity')}")
+        
         # レシピ食材を在庫名にマッピング
         for ingredient_name in unique_ingredients:
             normalized_ingredient = ingredient_mapper.normalize_ingredient_name(ingredient_name)
+            logger.info(f"🔍 [API] Processing ingredient '{ingredient_name}' (normalized: '{normalized_ingredient}')")
             
             matched = False
             # 正規化された在庫名インデックスから検索
             if normalized_ingredient in inventory_normalized:
-                # 完全一致の場合
-                for inv_item in inventory_normalized[normalized_ingredient]:
+                # 完全一致の場合：同じ食材名のすべての在庫レコードを候補に追加
+                matched_items = inventory_normalized[normalized_ingredient]
+                logger.info(f"🔍 [API] Found {len(matched_items)} inventory items for ingredient '{ingredient_name}' (normalized: '{normalized_ingredient}')")
+                for inv_item in matched_items:
                     inv_id = inv_item.get("id")
                     if inv_id not in matched_inventory_ids:
                         candidates.append(IngredientDeleteCandidate(
@@ -260,11 +278,22 @@ async def get_ingredient_delete_candidates(
                         ))
                         matched_inventory_ids.add(inv_id)
                         matched = True
+                        logger.info(f"✅ [API] Added candidate: {inv_item.get('item_name')} (ID: {inv_id}, Quantity: {inv_item.get('quantity')})")
+                    else:
+                        logger.debug(f"⚠️ [API] Skipped duplicate inventory ID: {inv_id} for ingredient '{ingredient_name}'")
             else:
                 # 部分一致をチェック（正規化された在庫名とレシピ食材名の部分一致）
-                for normalized_inv, inv_items in inventory_normalized.items():
-                    if normalized_ingredient in normalized_inv or normalized_inv in normalized_ingredient:
-                        for inv_item in inv_items:
+                # まず、末尾の英数字を除去した正規化名でマッチングを試みる
+                import re
+                # 末尾の英数字を除去（例：「卵l」→「卵」）
+                ingredient_base = re.sub(r'[a-z0-9]+$', '', normalized_ingredient)
+                if ingredient_base and ingredient_base != normalized_ingredient:
+                    logger.info(f"🔍 [API] Trying base match for '{ingredient_name}': base='{ingredient_base}' (original normalized='{normalized_ingredient}')")
+                    if ingredient_base in inventory_normalized:
+                        # ベース名で完全一致した場合：すべての在庫レコードを候補に追加
+                        matched_items = inventory_normalized[ingredient_base]
+                        logger.info(f"🔍 [API] Found {len(matched_items)} inventory items for ingredient base '{ingredient_base}'")
+                        for inv_item in matched_items:
                             inv_id = inv_item.get("id")
                             if inv_id not in matched_inventory_ids:
                                 candidates.append(IngredientDeleteCandidate(
@@ -275,7 +304,27 @@ async def get_ingredient_delete_candidates(
                                 ))
                                 matched_inventory_ids.add(inv_id)
                                 matched = True
-                                break  # 部分一致が見つかったら次の食材へ
+                                logger.info(f"✅ [API] Added candidate (base match): {inv_item.get('item_name')} (ID: {inv_id}, Quantity: {inv_item.get('quantity')})")
+                
+                # ベース名でマッチしなかった場合、通常の部分一致をチェック
+                if not matched:
+                    for normalized_inv, inv_items in inventory_normalized.items():
+                        if normalized_ingredient in normalized_inv or normalized_inv in normalized_ingredient:
+                            # 部分一致の場合：最初にマッチした在庫レコードのみ候補に追加
+                            for inv_item in inv_items:
+                                inv_id = inv_item.get("id")
+                                if inv_id not in matched_inventory_ids:
+                                    candidates.append(IngredientDeleteCandidate(
+                                        inventory_id=inv_id,
+                                        item_name=inv_item.get("item_name", ""),
+                                        current_quantity=float(inv_item.get("quantity", 0)),
+                                        unit=inv_item.get("unit", "個")
+                                    ))
+                                    matched_inventory_ids.add(inv_id)
+                                    matched = True
+                                    logger.info(f"✅ [API] Added candidate (partial match): {inv_item.get('item_name')} (ID: {inv_id}, Quantity: {inv_item.get('quantity')})")
+                                    break  # 部分一致が見つかったら次の食材へ
+                            break  # 部分一致が見つかったら次の食材へ
             
             if not matched:
                 logger.debug(f"⚠️ [API] Ingredient '{ingredient_name}' not found in inventory")
@@ -349,24 +398,37 @@ async def delete_ingredients(
                 target_quantity = ingredient_item.quantity
                 inventory_id = ingredient_item.inventory_id
                 
-                # 在庫IDが指定されている場合は直接更新
+                # 在庫IDが指定されている場合は直接更新または削除
                 if inventory_id:
-                    result = await inventory_crud.update_item_by_id(
-                        client=client,
-                        user_id=user_id,
-                        item_id=inventory_id,
-                        quantity=target_quantity
-                    )
-                    
-                    if result.get("success"):
-                        if target_quantity == 0:
+                    if target_quantity == 0:
+                        # 削除の場合
+                        result = await inventory_crud.delete_item_by_id(
+                            client=client,
+                            user_id=user_id,
+                            item_id=inventory_id
+                        )
+                        
+                        if result.get("success"):
                             deleted_count += 1
+                            logger.info(f"✅ [API] Deleted inventory item: {inventory_id}")
                         else:
-                            updated_count += 1
-                        logger.info(f"✅ [API] Updated inventory item: {inventory_id}, quantity={target_quantity}")
+                            failed_items.append(f"{item_name} (ID: {inventory_id})")
+                            logger.error(f"❌ [API] Failed to delete inventory item: {inventory_id}")
                     else:
-                        failed_items.append(f"{item_name} (ID: {inventory_id})")
-                        logger.error(f"❌ [API] Failed to update inventory item: {inventory_id}")
+                        # 数量更新の場合
+                        result = await inventory_crud.update_item_by_id(
+                            client=client,
+                            user_id=user_id,
+                            item_id=inventory_id,
+                            quantity=target_quantity
+                        )
+                        
+                        if result.get("success"):
+                            updated_count += 1
+                            logger.info(f"✅ [API] Updated inventory item: {inventory_id}, quantity={target_quantity}")
+                        else:
+                            failed_items.append(f"{item_name} (ID: {inventory_id})")
+                            logger.error(f"❌ [API] Failed to update inventory item: {inventory_id}")
                 else:
                     # 食材名で検索（複数在庫がある場合はすべて更新）
                     matched_items = []
@@ -384,25 +446,38 @@ async def delete_ingredients(
                         logger.warning(f"⚠️ [API] Inventory item not found: {item_name}")
                         continue
                     
-                    # すべてのマッチした在庫を更新
+                    # すべてのマッチした在庫を更新または削除
                     for inv_item in matched_items:
                         inv_id = inv_item.get("id")
-                        result = await inventory_crud.update_item_by_id(
-                            client=client,
-                            user_id=user_id,
-                            item_id=inv_id,
-                            quantity=target_quantity
-                        )
-                        
-                        if result.get("success"):
-                            if target_quantity == 0:
+                        if target_quantity == 0:
+                            # 削除の場合
+                            result = await inventory_crud.delete_item_by_id(
+                                client=client,
+                                user_id=user_id,
+                                item_id=inv_id
+                            )
+                            
+                            if result.get("success"):
                                 deleted_count += 1
+                                logger.info(f"✅ [API] Deleted inventory item: {inv_id}")
                             else:
-                                updated_count += 1
-                            logger.info(f"✅ [API] Updated inventory item: {inv_id}, quantity={target_quantity}")
+                                failed_items.append(f"{item_name} (ID: {inv_id})")
+                                logger.error(f"❌ [API] Failed to delete inventory item: {inv_id}")
                         else:
-                            failed_items.append(f"{item_name} (ID: {inv_id})")
-                            logger.error(f"❌ [API] Failed to update inventory item: {inv_id}")
+                            # 数量更新の場合
+                            result = await inventory_crud.update_item_by_id(
+                                client=client,
+                                user_id=user_id,
+                                item_id=inv_id,
+                                quantity=target_quantity
+                            )
+                            
+                            if result.get("success"):
+                                updated_count += 1
+                                logger.info(f"✅ [API] Updated inventory item: {inv_id}, quantity={target_quantity}")
+                            else:
+                                failed_items.append(f"{item_name} (ID: {inv_id})")
+                                logger.error(f"❌ [API] Failed to update inventory item: {inv_id}")
                             
             except Exception as e:
                 failed_items.append(f"{ingredient_item.item_name} (エラー: {str(e)})")

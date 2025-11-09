@@ -32,19 +32,21 @@
 
 **実装内容**:
 - 削除候補食材リストを表示
-- チェックボックスで選択
-- 数量変更（数量=0が削除）
+- プルダウンで処理を選択（無処理・削除・数量減）
+- 数量減の場合のみ変更後数量を入力
 - 削除実行ボタン
 
 **UI要件**:
 - モーダルまたはダイアログ形式で表示
-- 削除候補食材リスト:
-  - 食材名
-  - 現在の数量
-  - 単位
-  - チェックボックス（選択/非選択）
-  - 数量入力フィールド（数量=0で削除）
-- 削除実行ボタン: 選択された食材を削除
+- 削除候補食材リスト（テーブル形式）:
+  - **処理（選択）**: プルダウンで「無処理・削除・数量減」を選択
+  - 無処理: 処理を行わない（APIに送信しない）
+  - 削除: 数量を0に設定して削除
+  - 数量減: 変更後数量を入力して数量を減らす
+  - **アイテム名（表示）**: 食材名を表示
+  - **変更前数量（表示）**: 現在の数量と単位を表示
+  - **変更後数量（入力）**: 「数量減」選択時のみ活性化される入力フィールド
+- 削除実行ボタン: 選択された処理を実行（「無処理」は除外）
 - キャンセルボタン: モーダルを閉じる
 
 **API呼び出し**:
@@ -107,6 +109,8 @@ interface IngredientDeleteModalProps {
 #### IngredientDeleteCandidateList
 
 ```typescript
+type ActionType = 'none' | 'delete' | 'reduce';
+
 interface IngredientDeleteCandidate {
   inventory_id: string;
   item_name: string;
@@ -114,13 +118,19 @@ interface IngredientDeleteCandidate {
   unit: string;
 }
 
-interface IngredientDeleteCandidateListProps {
-  candidates: IngredientDeleteCandidate[];
-  selectedItems: Map<string, number>; // inventory_id -> quantity
-  onSelectionChange: (inventoryId: string, quantity: number) => void;
+interface CandidateAction {
+  inventory_id: string;
+  action: ActionType;
+  new_quantity?: number; // 数量減の場合のみ
 }
 
-// チェックボックスと数量入力フィールド
+interface IngredientDeleteCandidateListProps {
+  candidates: IngredientDeleteCandidate[];
+  actions: Map<string, CandidateAction>; // inventory_id -> CandidateAction
+  onActionChange: (inventoryId: string, action: ActionType, newQuantity?: number) => void;
+}
+
+// プルダウン（処理選択）と数量入力フィールド（数量減の場合のみ活性化）
 ```
 
 ## テスト項目
@@ -136,9 +146,12 @@ interface IngredientDeleteCandidateListProps {
    - 削除候補食材リストが表示されること
 
 3. **食材削除コンポーネントの動作**
-   - チェックボックスで選択/非選択ができること
-   - 数量入力フィールドで数量を変更できること
-   - 削除実行ボタンで削除が実行されること
+   - プルダウンで「無処理・削除・数量減」を選択できること
+   - 「数量減」選択時のみ変更後数量入力欄が活性化されること
+   - 「無処理」を選択したアイテムはAPIに送信されないこと
+   - 「削除」を選択したアイテムは数量0として送信されること
+   - 「数量減」を選択したアイテムは入力された数量で送信されること
+   - 削除実行ボタンで処理が実行されること
    - 削除完了後、モーダルが閉じること
 
 ### 統合テスト

@@ -125,6 +125,7 @@ class HistoryEntry(BaseModel):
     """履歴エントリ（日付単位）"""
     date: str = Field(..., description="日付（YYYY-MM-DD形式）")
     recipes: List[HistoryRecipe] = Field(..., description="その日のレシピリスト")
+    ingredients_deleted: bool = Field(default=False, description="食材削除済みフラグ")
 
 
 class MenuHistoryResponse(BaseModel):

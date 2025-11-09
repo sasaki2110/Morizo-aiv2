@@ -183,12 +183,31 @@ async def search_menu_from_rag_with_history(
         # 1件の献立のみを返す（LLM推論と合わせて計2件をユーザーに提示）
         selected_menu = menu_result.get("selected", {})
         
+        # 各レシピごとの食材情報を取得
+        main_dish_data = selected_menu.get("main_dish", {})
+        side_dish_data = selected_menu.get("side_dish", {})
+        soup_data = selected_menu.get("soup", {})
+        
+        main_dish_ingredients = main_dish_data.get("ingredients", []) if isinstance(main_dish_data, dict) else []
+        side_dish_ingredients = side_dish_data.get("ingredients", []) if isinstance(side_dish_data, dict) else []
+        soup_ingredients = soup_data.get("ingredients", []) if isinstance(soup_data, dict) else []
+        
+        # 献立全体で使用された食材リストを生成
+        ingredients_used = []
+        ingredients_used.extend(main_dish_ingredients)
+        ingredients_used.extend(side_dish_ingredients)
+        ingredients_used.extend(soup_ingredients)
+        ingredients_used = list(set(ingredients_used))  # 重複を除去
+        
         # generate_menu_plan_with_historyと同じ形式に統一
         formatted_data = {
-            "main_dish": selected_menu.get("main_dish", {}).get("title", ""),
-            "side_dish": selected_menu.get("side_dish", {}).get("title", ""),
-            "soup": selected_menu.get("soup", {}).get("title", ""),
-            "ingredients_used": []
+            "main_dish": main_dish_data.get("title", "") if isinstance(main_dish_data, dict) else str(main_dish_data),
+            "side_dish": side_dish_data.get("title", "") if isinstance(side_dish_data, dict) else str(side_dish_data),
+            "soup": soup_data.get("title", "") if isinstance(soup_data, dict) else str(soup_data),
+            "main_dish_ingredients": main_dish_ingredients,
+            "side_dish_ingredients": side_dish_ingredients,
+            "soup_ingredients": soup_ingredients,
+            "ingredients_used": ingredients_used
         }
         
         return {

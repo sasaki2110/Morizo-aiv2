@@ -103,7 +103,13 @@ class SelectionHandler:
             
             # 選択されたレシピ情報を取得（StageManager経由）
             selected_recipe = await self.stage_manager.get_selected_recipe_from_task(task_id, selection, sse_session_id)
+            ingredients = selected_recipe.get('ingredients', [])
+            has_ingredients = 'ingredients' in selected_recipe and ingredients
             self.logger.info(f"✅ [SELECTION] Selected recipe: {selected_recipe.get('title', 'Unknown')}")
+            if has_ingredients:
+                self.logger.info(f"✅ [SELECTION] Selected recipe has {len(ingredients)} ingredients: {ingredients}")
+            else:
+                self.logger.warning(f"⚠️ [SELECTION] Selected recipe missing or empty 'ingredients' field (ingredients={ingredients})")
             
             # Phase 3C-3: 段階を進める（StageManager経由）
             next_stage = await self.stage_manager.advance_stage(sse_session_id, user_id, selected_recipe)

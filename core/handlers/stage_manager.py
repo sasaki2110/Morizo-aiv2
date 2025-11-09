@@ -77,7 +77,13 @@ class StageManager:
             
             # 選択されたレシピを取得
             selected_recipe = candidates[selection - 1]  # インデックスは1ベース
+            ingredients = selected_recipe.get('ingredients', [])
+            has_ingredients = 'ingredients' in selected_recipe and ingredients
             self.logger.info(f"✅ [STAGE] Selected recipe: title='{selected_recipe.get('title', 'Unknown')}', source='{selected_recipe.get('source', 'N/A')}'")
+            if has_ingredients:
+                self.logger.info(f"✅ [STAGE] Selected recipe has {len(ingredients)} ingredients: {ingredients}")
+            else:
+                self.logger.warning(f"⚠️ [STAGE] Selected recipe missing or empty 'ingredients' field (ingredients={ingredients})")
             
             return selected_recipe
             

@@ -119,11 +119,23 @@ class RecipeLLM:
 
 以下のJSON形式で回答してください:
 {{
-    "main_dish": "主菜のタイトル",
-    "side_dish": "副菜のタイトル", 
-    "soup": "汁物のタイトル",
-    "ingredients_used": ["使用食材1", "使用食材2", ...]
+    "main_dish": {{
+        "title": "主菜のタイトル",
+        "ingredients": ["主菜で使用する食材1", "主菜で使用する食材2", ...]
+    }},
+    "side_dish": {{
+        "title": "副菜のタイトル",
+        "ingredients": ["副菜で使用する食材1", "副菜で使用する食材2", ...]
+    }},
+    "soup": {{
+        "title": "汁物のタイトル",
+        "ingredients": ["汁物で使用する食材1", "汁物で使用する食材2", ...]
+    }},
+    "ingredients_used": ["献立全体で使用する食材1", "献立全体で使用する食材2", ...]
 }}
+
+注意: 各レシピ（main_dish, side_dish, soup）には、そのレシピで実際に使用する食材のみをingredientsに含めてください。
+ingredients_usedは献立全体で使用される食材のリストです。
 
 生成する献立:
 """
@@ -135,73 +147,145 @@ class RecipeLLM:
             import json
             import re
             
+            # デバッグ: レスポンス内容をログに記録
+            self.logger.debug(f"🔍 [LLM] Parsing response content (length: {len(response_content)}): {response_content[:1000]}")
+            
             # まず、マークダウンコードブロック内のJSONを抽出
             json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response_content, re.DOTALL)
             if json_match:
                 json_str = json_match.group(1)
-                menu_data = json.loads(json_str.strip())
-                return {
-                    "main_dish": menu_data.get("main_dish", ""),
-                    "side_dish": menu_data.get("side_dish", ""),
-                    "soup": menu_data.get("soup", ""),
-                    "ingredients_used": menu_data.get("ingredients_used", [])
-                }
+                try:
+                    menu_data = json.loads(json_str.strip())
+                    self.logger.debug(f"✅ [LLM] Successfully parsed JSON from markdown code block")
+                    return self._extract_menu_data(menu_data)
+                except json.JSONDecodeError as e:
+                    self.logger.warning(f"⚠️ [LLM] Failed to parse JSON from markdown block: {e}")
             
-            # マークダウンコードブロックがない場合、直接JSONを探す
-            json_match = re.search(r'\{.*?"main_dish".*?"side_dish".*?"soup".*?\}', response_content, re.DOTALL)
+            # マークダウンコードブロックがない場合、直接JSONを探す（より寛容な正規表現）
+            # ネストされたオブジェクトにも対応
+            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response_content, re.DOTALL)
             if json_match:
                 json_str = json_match.group(0)
-                menu_data = json.loads(json_str.strip())
-                return {
-                    "main_dish": menu_data.get("main_dish", ""),
-                    "side_dish": menu_data.get("side_dish", ""),
-                    "soup": menu_data.get("soup", ""),
-                    "ingredients_used": menu_data.get("ingredients_used", [])
-                }
+                try:
+                    menu_data = json.loads(json_str.strip())
+                    self.logger.debug(f"✅ [LLM] Successfully parsed JSON from direct match")
+                    return self._extract_menu_data(menu_data)
+                except json.JSONDecodeError as e:
+                    self.logger.warning(f"⚠️ [LLM] Failed to parse JSON from direct match: {e}")
             
             # 通常のJSON解析を試行
-            menu_data = json.loads(response_content.strip())
+            try:
+                menu_data = json.loads(response_content.strip())
+                self.logger.debug(f"✅ [LLM] Successfully parsed JSON from full content")
+                return self._extract_menu_data(menu_data)
+            except json.JSONDecodeError as e:
+                self.logger.warning(f"⚠️ [LLM] Failed to parse JSON from full content: {e}")
             
-            return {
-                "main_dish": menu_data.get("main_dish", ""),
-                "side_dish": menu_data.get("side_dish", ""),
-                "soup": menu_data.get("soup", ""),
-                "ingredients_used": menu_data.get("ingredients_used", [])
-            }
-            
-        except json.JSONDecodeError as e:
-            # JSON解析に失敗した場合、テキストから抽出を試行
-            self.logger.warning(f"⚠️ [LLM] Failed to parse JSON response, attempting text extraction")
-            self.logger.debug(f"🔍 [LLM] Response content (first 500 chars): {response_content[:500]}")
+            # すべてのJSON解析に失敗した場合、テキストから抽出を試行
+            self.logger.warning(f"⚠️ [LLM] All JSON parsing attempts failed, attempting text extraction")
+            self.logger.debug(f"🔍 [LLM] Response content (first 1000 chars): {response_content[:1000]}")
             return self._extract_from_text(response_content)
+            
         except Exception as e:
             self.logger.error(f"❌ [LLM] Failed to parse response: {e}")
-            self.logger.debug(f"🔍 [LLM] Response content (first 500 chars): {response_content[:500]}")
-            return {"main_dish": "", "side_dish": "", "soup": "", "ingredients_used": []}
+            self.logger.debug(f"🔍 [LLM] Response content (first 1000 chars): {response_content[:1000]}")
+            return {"main_dish": "", "side_dish": "", "soup": "", "main_dish_ingredients": [], "side_dish_ingredients": [], "soup_ingredients": [], "ingredients_used": []}
+    
+    def _extract_menu_data(self, menu_data: Dict[str, Any]) -> Dict[str, Any]:
+        """menu_dataから献立情報を抽出（新旧形式対応）"""
+        # 新しい形式（各レシピがオブジェクト）をチェック
+        main_dish_data = menu_data.get("main_dish", {})
+        side_dish_data = menu_data.get("side_dish", {})
+        soup_data = menu_data.get("soup", {})
+        
+        # 新しい形式か既存形式かを判定
+        is_new_format = (
+            isinstance(main_dish_data, dict) and "title" in main_dish_data
+        ) or (
+            isinstance(side_dish_data, dict) and "title" in side_dish_data
+        ) or (
+            isinstance(soup_data, dict) and "title" in soup_data
+        )
+        
+        if is_new_format:
+            # 新しい形式: 各レシピがオブジェクト
+            return {
+                "main_dish": main_dish_data.get("title", "") if isinstance(main_dish_data, dict) else str(main_dish_data),
+                "side_dish": side_dish_data.get("title", "") if isinstance(side_dish_data, dict) else str(side_dish_data),
+                "soup": soup_data.get("title", "") if isinstance(soup_data, dict) else str(soup_data),
+                "main_dish_ingredients": main_dish_data.get("ingredients", []) if isinstance(main_dish_data, dict) else [],
+                "side_dish_ingredients": side_dish_data.get("ingredients", []) if isinstance(side_dish_data, dict) else [],
+                "soup_ingredients": soup_data.get("ingredients", []) if isinstance(soup_data, dict) else [],
+                "ingredients_used": menu_data.get("ingredients_used", [])
+            }
+        else:
+            # 既存形式: 各レシピが文字列
+            return {
+                "main_dish": str(main_dish_data) if main_dish_data else "",
+                "side_dish": str(side_dish_data) if side_dish_data else "",
+                "soup": str(soup_data) if soup_data else "",
+                "main_dish_ingredients": [],
+                "side_dish_ingredients": [],
+                "soup_ingredients": [],
+                "ingredients_used": menu_data.get("ingredients_used", [])
+            }
     
     def _extract_from_text(self, text: str) -> Dict[str, Any]:
         """テキストから献立タイトルを抽出（フォールバック）"""
         import re
+        import json
         
         main_dish = ""
         side_dish = ""
         soup = ""
+        main_dish_ingredients = []
+        side_dish_ingredients = []
+        soup_ingredients = []
         ingredients = []
         
-        # パターン1: "主菜": "タイトル" 形式（JSONライク）
-        main_match = re.search(r'"main_dish"\s*:\s*"([^"]+)"', text, re.IGNORECASE)
-        if main_match:
-            main_dish = main_match.group(1)
+        # パターン1: 新しい形式 "main_dish": {"title": "...", "ingredients": [...]} を試行
+        main_dish_obj_match = re.search(r'"main_dish"\s*:\s*\{[^}]*"title"\s*:\s*"([^"]+)"', text, re.IGNORECASE | re.DOTALL)
+        if main_dish_obj_match:
+            main_dish = main_dish_obj_match.group(1)
+            # ingredientsも抽出
+            main_ingredients_match = re.search(r'"main_dish"\s*:\s*\{[^}]*"ingredients"\s*:\s*\[(.*?)\]', text, re.IGNORECASE | re.DOTALL)
+            if main_ingredients_match:
+                ingredients_str = main_ingredients_match.group(1)
+                main_dish_ingredients = re.findall(r'"([^"]+)"', ingredients_str)
         
-        side_match = re.search(r'"side_dish"\s*:\s*"([^"]+)"', text, re.IGNORECASE)
-        if side_match:
-            side_dish = side_match.group(1)
+        side_dish_obj_match = re.search(r'"side_dish"\s*:\s*\{[^}]*"title"\s*:\s*"([^"]+)"', text, re.IGNORECASE | re.DOTALL)
+        if side_dish_obj_match:
+            side_dish = side_dish_obj_match.group(1)
+            side_ingredients_match = re.search(r'"side_dish"\s*:\s*\{[^}]*"ingredients"\s*:\s*\[(.*?)\]', text, re.IGNORECASE | re.DOTALL)
+            if side_ingredients_match:
+                ingredients_str = side_ingredients_match.group(1)
+                side_dish_ingredients = re.findall(r'"([^"]+)"', ingredients_str)
         
-        soup_match = re.search(r'"soup"\s*:\s*"([^"]+)"', text, re.IGNORECASE)
-        if soup_match:
-            soup = soup_match.group(1)
+        soup_obj_match = re.search(r'"soup"\s*:\s*\{[^}]*"title"\s*:\s*"([^"]+)"', text, re.IGNORECASE | re.DOTALL)
+        if soup_obj_match:
+            soup = soup_obj_match.group(1)
+            soup_ingredients_match = re.search(r'"soup"\s*:\s*\{[^}]*"ingredients"\s*:\s*\[(.*?)\]', text, re.IGNORECASE | re.DOTALL)
+            if soup_ingredients_match:
+                ingredients_str = soup_ingredients_match.group(1)
+                soup_ingredients = re.findall(r'"([^"]+)"', ingredients_str)
         
-        # パターン2: 主菜: タイトル 形式（コロン区切り）
+        # パターン2: 既存形式 "main_dish": "タイトル" 形式（JSONライク）
+        if not main_dish:
+            main_match = re.search(r'"main_dish"\s*:\s*"([^"]+)"', text, re.IGNORECASE)
+            if main_match:
+                main_dish = main_match.group(1)
+        
+        if not side_dish:
+            side_match = re.search(r'"side_dish"\s*:\s*"([^"]+)"', text, re.IGNORECASE)
+            if side_match:
+                side_dish = side_match.group(1)
+        
+        if not soup:
+            soup_match = re.search(r'"soup"\s*:\s*"([^"]+)"', text, re.IGNORECASE)
+            if soup_match:
+                soup = soup_match.group(1)
+        
+        # パターン3: 主菜: タイトル 形式（コロン区切り）
         if not main_dish:
             main_match = re.search(r'主菜[：:]\s*([^\n]+)', text)
             if main_match:
@@ -217,7 +301,7 @@ class RecipeLLM:
             if soup_match:
                 soup = soup_match.group(1).strip()
         
-        # パターン3: 行ベースの解析（"主菜"という単語を含む行を探す）
+        # パターン4: 行ベースの解析（"主菜"という単語を含む行を探す）
         lines = text.strip().split('\n')
         for line in lines:
             line = line.strip()
@@ -254,11 +338,16 @@ class RecipeLLM:
             ingredients = ingredient_matches
         
         self.logger.info(f"📝 [LLM] Extracted from text - main_dish: '{main_dish}', side_dish: '{side_dish}', soup: '{soup}'")
+        if main_dish_ingredients or side_dish_ingredients or soup_ingredients:
+            self.logger.info(f"📝 [LLM] Extracted ingredients - main: {main_dish_ingredients}, side: {side_dish_ingredients}, soup: {soup_ingredients}")
         
         return {
             "main_dish": main_dish,
             "side_dish": side_dish,
             "soup": soup,
+            "main_dish_ingredients": main_dish_ingredients,
+            "side_dish_ingredients": side_dish_ingredients,
+            "soup_ingredients": soup_ingredients,
             "ingredients_used": ingredients
         }
     
@@ -398,7 +487,9 @@ class RecipeLLM:
 1. 在庫食材のみを使用
 2. 独創的で新しいレシピタイトル
 3. 除外レシピは絶対に使用しない
-4. 各提案に使用食材リストを含める
+4. 各提案に使用食材リスト（ingredients）を必ず含める（必須項目）
+
+重要: 各候補には必ず"ingredients"フィールドを含め、在庫食材から使用する食材名のリストを記載してください。
 
 以下のJSON形式で回答してください:
 {{
@@ -423,13 +514,21 @@ class RecipeLLM:
                 data = json.loads(json_str)
                 candidates = data.get("candidates", [])
                 
+                # デバッグログ: LLMレスポンスのJSON構造を確認
+                self.logger.info(f"🔍 [LLM] Parsed {len(candidates)} candidates from LLM response")
+                
                 # ingredientsが含まれていることを確認
-                for candidate in candidates:
+                for i, candidate in enumerate(candidates):
                     if "ingredients" not in candidate:
+                        self.logger.warning(f"⚠️ [LLM] Candidate {i+1} ('{candidate.get('title', 'N/A')}') missing 'ingredients' field, setting to empty list")
                         candidate["ingredients"] = []  # デフォルト値
+                    else:
+                        ingredients = candidate.get("ingredients", [])
+                        self.logger.info(f"✅ [LLM] Candidate {i+1} ('{candidate.get('title', 'N/A')}') has {len(ingredients)} ingredients: {ingredients}")
                 
                 return candidates
             
+            self.logger.warning(f"⚠️ [LLM] No JSON found in LLM response")
             return []
         except Exception as e:
             self.logger.error(f"❌ [LLM] Failed to parse candidate response: {e}")

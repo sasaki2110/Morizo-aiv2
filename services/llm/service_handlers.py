@@ -145,7 +145,12 @@ class RecipeServiceHandler:
                             await session_service.set_candidates(sse_session_id, category, candidates_with_urls)
                             # デバッグログ: 保存する候補のsourceとingredientsを確認
                             for i, candidate in enumerate(candidates_with_urls):
-                                self.logger.debug(f"🔍 [RecipeServiceHandler] Saving candidate {i+1}: title='{candidate.get('title', 'N/A')}', source='{candidate.get('source', 'N/A')}', ingredients={candidate.get('ingredients', [])}")
+                                ingredients = candidate.get('ingredients', [])
+                                has_ingredients = 'ingredients' in candidate and ingredients
+                                if has_ingredients:
+                                    self.logger.info(f"✅ [RecipeServiceHandler] Saving candidate {i+1}: title='{candidate.get('title', 'N/A')}', source='{candidate.get('source', 'N/A')}', ingredients={ingredients} ({len(ingredients)} items)")
+                                else:
+                                    self.logger.warning(f"⚠️ [RecipeServiceHandler] Saving candidate {i+1}: title='{candidate.get('title', 'N/A')}', source='{candidate.get('source', 'N/A')}', ingredients missing or empty (ingredients={ingredients})")
                             self.logger.info(f"💾 [RecipeServiceHandler] Saved {len(candidates_with_urls)} {category} candidates to session")
                     
                     # Phase 3D: セッションから段階情報を取得
@@ -166,9 +171,63 @@ class RecipeServiceHandler:
                         self.logger.info(f"ℹ️ [RecipeServiceHandler] Task3 result not found (menu scenario). Generating menu JSON only to avoid duplicate text.")
                         if results:
                             self.logger.debug(f"🔍 [RecipeServiceHandler] Available task keys in results: {list(results.keys())}")
+                        
+                        # task2とtask3の結果から各レシピごとの食材情報を取得
+                        llm_ingredients_used = None
+                        llm_main_dish_ingredients = None
+                        llm_side_dish_ingredients = None
+                        llm_soup_ingredients = None
+                        
+                        rag_ingredients_used = None
+                        rag_main_dish_ingredients = None
+                        rag_side_dish_ingredients = None
+                        rag_soup_ingredients = None
+                        
+                        if results:
+                            for task_key, task_data in results.items():
+                                if task_key == "task2" and task_data.get("success"):
+                                    task2_result = task_data.get("result", {})
+                                    if task2_result.get("success"):
+                                        task2_data = task2_result.get("data", {})
+                                        llm_ingredients_used = task2_data.get("ingredients_used", [])
+                                        llm_main_dish_ingredients = task2_data.get("main_dish_ingredients", [])
+                                        llm_side_dish_ingredients = task2_data.get("side_dish_ingredients", [])
+                                        llm_soup_ingredients = task2_data.get("soup_ingredients", [])
+                                        if llm_ingredients_used or llm_main_dish_ingredients or llm_side_dish_ingredients or llm_soup_ingredients:
+                                            self.logger.info(f"✅ [RecipeServiceHandler] Found ingredients from task2 (LLM):")
+                                            self.logger.info(f"   - ingredients_used: {llm_ingredients_used}")
+                                            self.logger.info(f"   - main_dish_ingredients: {llm_main_dish_ingredients}")
+                                            self.logger.info(f"   - side_dish_ingredients: {llm_side_dish_ingredients}")
+                                            self.logger.info(f"   - soup_ingredients: {llm_soup_ingredients}")
+                                
+                                elif task_key == "task3" and task_data.get("success"):
+                                    task3_result = task_data.get("result", {})
+                                    if task3_result.get("success"):
+                                        task3_data = task3_result.get("data", {})
+                                        rag_ingredients_used = task3_data.get("ingredients_used", [])
+                                        rag_main_dish_ingredients = task3_data.get("main_dish_ingredients", [])
+                                        rag_side_dish_ingredients = task3_data.get("side_dish_ingredients", [])
+                                        rag_soup_ingredients = task3_data.get("soup_ingredients", [])
+                                        if rag_ingredients_used or rag_main_dish_ingredients or rag_side_dish_ingredients or rag_soup_ingredients:
+                                            self.logger.info(f"✅ [RecipeServiceHandler] Found ingredients from task3 (RAG):")
+                                            self.logger.info(f"   - ingredients_used: {rag_ingredients_used}")
+                                            self.logger.info(f"   - main_dish_ingredients: {rag_main_dish_ingredients}")
+                                            self.logger.info(f"   - side_dish_ingredients: {rag_side_dish_ingredients}")
+                                            self.logger.info(f"   - soup_ingredients: {rag_soup_ingredients}")
+                        
                         # 献立提案ではテキスト重複を避けるため、Web整形テキストは追加しない
                         # （generate_menu_plan/search_menu_from_rag で既に表示済み）
-                        menu_data = menu_generator.generate_menu_data_json(data)
+                        menu_data = menu_generator.generate_menu_data_json(
+                            data, 
+                            ingredients_used=llm_ingredients_used,
+                            main_dish_ingredients=llm_main_dish_ingredients,
+                            side_dish_ingredients=llm_side_dish_ingredients,
+                            soup_ingredients=llm_soup_ingredients,
+                            rag_ingredients_used=rag_ingredients_used,
+                            rag_main_dish_ingredients=rag_main_dish_ingredients,
+                            rag_side_dish_ingredients=rag_side_dish_ingredients,
+                            rag_soup_ingredients=rag_soup_ingredients
+                        )
                     else:
                         # デバッグ: results辞書の内容を確認
                         self.logger.error(f"❌ [RecipeServiceHandler] Task3 result not found")

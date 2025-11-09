@@ -189,17 +189,41 @@ class MenuFormatter:
         Returns:
             食材リスト
         """
-        recipe_ingredients = []
+        # 段階提案と同じ方法でcontentフィールドから抽出（正規化済みの食材リスト）
+        content = recipe.get("content", "")
+        if content:
+            # contentは食材をスペースで結合した文字列（例: "鶏もも肉 しいたけ 玉ねぎ"）
+            # 段階提案と同じ方法で抽出
+            ingredients = content.split()
+            # 空文字列を除去
+            ingredients = [ingredient.strip() for ingredient in ingredients if ingredient.strip()]
+            if ingredients:
+                return ingredients
+        
+        # contentがない場合のみ、main_ingredientsから抽出（フォールバック）
+        # ただし、main_ingredientsにはタグ形式が含まれる可能性があるため、優先度は低い
         main_ingredients = recipe.get("main_ingredients", "")
         if main_ingredients:
-            recipe_ingredients.extend(main_ingredients.split())
-        if not recipe_ingredients:
-            content = recipe.get("content", "")
-            parts = content.split(' | ')
-            if len(parts) > 1:
-                recipe_ingredients.extend(parts[1].split())
+            # タグ形式を除去して抽出
+            import re
+            raw_ingredients = main_ingredients.split()
+            cleaned_ingredients = []
+            for raw_ingredient in raw_ingredients:
+                # カンマを除去
+                raw_ingredient = raw_ingredient.rstrip(',')
+                # タグ形式を除去
+                ingredient = re.sub(r'^お肉', '', raw_ingredient)
+                ingredient = re.sub(r'^野菜', '', ingredient)
+                ingredient = re.sub(r'^お', '', ingredient)
+                ingredient = re.sub(r'^＊', '', ingredient)
+                ingredient = re.sub(r'＊[^＊]*＊', '', ingredient)
+                ingredient = ingredient.strip()
+                if ingredient:
+                    cleaned_ingredients.append(ingredient)
+            if cleaned_ingredients:
+                return cleaned_ingredients
         
-        return recipe_ingredients
+        return []
     
     def _generate_menu_candidates(
         self, 
