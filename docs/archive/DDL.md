@@ -42,6 +42,17 @@ CREATE TABLE user_settings (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- OCR商品名変換テーブル（レシートOCR読み取り精度向上用）
+CREATE TABLE ocr_item_mappings (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    original_name VARCHAR(255) NOT NULL,  -- OCRで読み取られた元の名前（例: "もっちり仕込み"）
+    normalized_name VARCHAR(255) NOT NULL, -- 正規化後の名前（例: "食パン"）
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(user_id, original_name)  -- 同一ユーザー内で元の名前は一意
+);
 ```
 
 ### 3. インデックスと制約
@@ -53,6 +64,9 @@ CREATE INDEX idx_inventory_item_name ON inventory(item_name);
 CREATE INDEX idx_inventory_storage_location ON inventory(storage_location);
 CREATE INDEX idx_recipe_historys_user_id ON recipe_historys(user_id);
 CREATE INDEX idx_recipe_historys_title ON recipe_historys(title);
+CREATE INDEX idx_ocr_item_mappings_user_id ON ocr_item_mappings(user_id);
+CREATE INDEX idx_ocr_item_mappings_original_name ON ocr_item_mappings(original_name);
+CREATE INDEX idx_ocr_item_mappings_normalized_name ON ocr_item_mappings(normalized_name);
 
 -- 更新日時自動更新のトリガー
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -71,6 +85,9 @@ CREATE TRIGGER update_recipe_historys_updated_at BEFORE UPDATE ON recipe_history
 
 CREATE TRIGGER update_user_settings_updated_at BEFORE UPDATE ON user_settings
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_ocr_item_mappings_updated_at BEFORE UPDATE ON ocr_item_mappings
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 ```
 
 ### 4. Row Level Security (RLS) 設定
@@ -80,6 +97,7 @@ CREATE TRIGGER update_user_settings_updated_at BEFORE UPDATE ON user_settings
 ALTER TABLE inventory ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recipe_historys ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ocr_item_mappings ENABLE ROW LEVEL SECURITY;
 
 -- ポリシー作成（ユーザーは自分のデータのみアクセス可能）
 CREATE POLICY "Users can view own inventory" ON inventory
@@ -119,6 +137,19 @@ CREATE POLICY "Users can update own settings" ON user_settings
 
 CREATE POLICY "Users can delete own settings" ON user_settings
     FOR DELETE USING (auth.uid() = user_id);
+
+-- ocr_item_mappingsテーブル用ポリシー
+CREATE POLICY "Users can view own ocr_item_mappings" ON ocr_item_mappings
+    FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own ocr_item_mappings" ON ocr_item_mappings
+    FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own ocr_item_mappings" ON ocr_item_mappings
+    FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own ocr_item_mappings" ON ocr_item_mappings
+    FOR DELETE USING (auth.uid() = user_id);
 ```
 
 ## 実行手順
@@ -149,6 +180,12 @@ CREATE POLICY "Users can delete own settings" ON user_settings
 ### user_settings テーブル
 - **preferences**: JSONB形式でユーザー設定
 - **user_id**: ユニーク制約で1ユーザー1設定
+
+### ocr_item_mappings テーブル（OCR商品名変換）
+- **original_name**: OCRで読み取られた元の商品名（例: "もっちり仕込み"、"新ＢＰコクのある絹豆腐"）
+- **normalized_name**: 正規化後の食材名（例: "食パン"、"豆腐"）
+- **user_id**: ユーザーID（ユーザーごとに変換テーブルを管理）
+- **UNIQUE(user_id, original_name)**: 同一ユーザー内で元の名前は一意（同じ元の名前に対して複数の変換を登録できない）
 
 #### MVP段階での想定設定例
 ```json
