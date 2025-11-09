@@ -131,3 +131,17 @@ class MenuHistoryResponse(BaseModel):
     """献立履歴レスポンス"""
     success: bool = Field(..., description="処理成功フラグ")
     data: List[HistoryEntry] = Field(..., description="日付別の履歴エントリリスト")
+
+class IngredientDeleteCandidate(BaseModel):
+    """削除候補食材"""
+    inventory_id: str = Field(..., description="在庫ID")
+    item_name: str = Field(..., description="食材名")
+    current_quantity: float = Field(..., description="現在の数量")
+    unit: str = Field(..., description="単位")
+
+
+class IngredientDeleteCandidatesResponse(BaseModel):
+    """削除候補食材レスポンス"""
+    success: bool = Field(..., description="処理成功フラグ")
+    date: str = Field(..., description="日付（YYYY-MM-DD形式）")
+    candidates: List[IngredientDeleteCandidate] = Field(..., description="削除候補食材リスト")

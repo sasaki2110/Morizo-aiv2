@@ -143,9 +143,9 @@ class RecipeServiceHandler:
                             current_stage = session.get_current_stage()
                             category = current_stage  # "main", "sub", "soup"
                             await session_service.set_candidates(sse_session_id, category, candidates_with_urls)
-                            # デバッグログ: 保存する候補のsourceを確認
+                            # デバッグログ: 保存する候補のsourceとingredientsを確認
                             for i, candidate in enumerate(candidates_with_urls):
-                                self.logger.debug(f"🔍 [RecipeServiceHandler] Saving candidate {i+1}: title='{candidate.get('title', 'N/A')}', source='{candidate.get('source', 'N/A')}'")
+                                self.logger.debug(f"🔍 [RecipeServiceHandler] Saving candidate {i+1}: title='{candidate.get('title', 'N/A')}', source='{candidate.get('source', 'N/A')}', ingredients={candidate.get('ingredients', [])}")
                             self.logger.info(f"💾 [RecipeServiceHandler] Saved {len(candidates_with_urls)} {category} candidates to session")
                     
                     # Phase 3D: セッションから段階情報を取得

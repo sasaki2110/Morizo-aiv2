@@ -75,6 +75,7 @@ class RecipeItem(BaseModel):
         None, 
         description="レシピのURL（Web検索から採用した場合）"
     )
+    ingredients: Optional[List[str]] = Field(None, description="利用食材リスト")
 
 
 class RecipeAdoptionRequest(BaseModel):

@@ -421,7 +421,14 @@ class RecipeLLM:
             if json_match:
                 json_str = json_match.group()
                 data = json.loads(json_str)
-                return data.get("candidates", [])
+                candidates = data.get("candidates", [])
+                
+                # ingredientsが含まれていることを確認
+                for candidate in candidates:
+                    if "ingredients" not in candidate:
+                        candidate["ingredients"] = []  # デフォルト値
+                
+                return candidates
             
             return []
         except Exception as e:
