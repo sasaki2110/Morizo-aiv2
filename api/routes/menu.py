@@ -116,7 +116,12 @@ async def save_menu(request: MenuSaveRequest, http_request: Request):
                 # URLの取得
                 url = recipe.get("url")
                 
-                logger.info(f"🔍 [API] Saving {category}: title='{prefixed_title}', source={recipe_source}→{db_source}")
+                # ingredientsを取得
+                ingredients = recipe.get("ingredients", [])
+                if not ingredients:
+                    ingredients = None  # 空リストの場合はNoneに
+                
+                logger.info(f"🔍 [API] Saving {category}: title='{prefixed_title}', source={recipe_source}→{db_source}, ingredients={ingredients}")
                 
                 # DBに保存
                 result = await crud.add_history(
@@ -124,7 +129,8 @@ async def save_menu(request: MenuSaveRequest, http_request: Request):
                     user_id=user_id,
                     title=prefixed_title,
                     source=db_source,
-                    url=url
+                    url=url,
+                    ingredients=ingredients
                 )
                 
                 if result.get("success"):

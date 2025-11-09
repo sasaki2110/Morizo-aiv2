@@ -23,7 +23,8 @@ class RecipeHistoryCRUD:
         user_id: str, 
         title: str, 
         source: str,
-        url: Optional[str] = None
+        url: Optional[str] = None,
+        ingredients: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """レシピ履歴を1件追加"""
         try:
@@ -38,6 +39,10 @@ class RecipeHistoryCRUD:
             
             if url:
                 data["url"] = url
+            
+            # ingredientsをJSONB形式で保存
+            if ingredients:
+                data["ingredients"] = ingredients
             
             # データベースに挿入
             result = client.table("recipe_historys").insert(data).execute()
