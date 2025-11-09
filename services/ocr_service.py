@@ -53,10 +53,28 @@ class OCRService:
                             "content": [
                                 {
                                     "type": "text",
-                                    "text": """このレシート画像から、在庫管理に必要な情報を抽出してください。
+                                    "text": """このレシート画像から、在庫管理に必要な食材情報を抽出してください。
+
+【重要】item_nameには、食材名のみを抽出してください。
+以下の情報は除外してください：
+- ブランド名（例: 「新ＢＰ」「ＢＰ」など）
+- 商品名・商品説明（例: 「コクのある」「成分無調整」など）
+- サイズ表記（例: 「大」「小」「中」「バラ」など）
+- 状態表記（例: 「生」「国産」など、ただし食材の種類を特定するために必要な場合は除く）
+
+【良い例】
+- 「じゃがいもバラ」→「じゃがいも」
+- 「生しいたけ大」→「しいたけ」
+- 「新ＢＰコクのある絹豆腐」→「豆腐」
+- 「ＢＰ成分無調整牛乳」→「牛乳」
+- 「悠々鶏モモ肉国産」→「鶏もも肉」
+
+【悪い例】
+- 「じゃがいもバラ」→「じゃがいもバラ」（「バラ」は不要）
+- 「新ＢＰコクのある絹豆腐」→「新ＢＰコクのある絹豆腐」（商品名は不要）
 
 抽出すべき情報:
-- 商品名（item_name）
+- 商品名（item_name）: 食材名のみ（上記の除外ルールに従う）
 - 数量（quantity）
 - 単位（unit）
 - 保管場所（storage_location、推測可）
@@ -65,7 +83,7 @@ class OCRService:
 レスポンス形式: JSON配列
 [
   {
-    "item_name": "商品名",
+    "item_name": "食材名",
     "quantity": 数量,
     "unit": "単位",
     "storage_location": "保管場所",
@@ -73,7 +91,7 @@ class OCRService:
   }
 ]
 
-日本語のレシートを正確に解析してください。商品名は正確に、数量と単位も正しく抽出してください。"""
+日本語のレシートを正確に解析してください。食材名は簡潔に、数量と単位も正しく抽出してください。"""
                                 },
                                 {
                                     "type": "image_url",
@@ -130,6 +148,15 @@ class OCRService:
             if not isinstance(items, list):
                 raise ValueError("OCR結果が配列形式ではありません")
             
+            # 各アイテムのitem_nameを正規化
+            for item in items:
+                if "item_name" in item and item["item_name"]:
+                    original_name = item["item_name"]
+                    normalized_name = self.normalize_item_name(original_name)
+                    if original_name != normalized_name:
+                        self.logger.debug(f"🔧 [OCR] Normalized item name: '{original_name}' -> '{normalized_name}'")
+                    item["item_name"] = normalized_name
+            
             self.logger.info(f"✅ [OCR] Extracted {len(items)} items from receipt")
             
             return {
@@ -153,6 +180,67 @@ class OCRService:
                 "error": str(e),
                 "items": []
             }
+    
+    def normalize_item_name(self, item_name: str) -> str:
+        """
+        商品名を正規化して食材名のみを抽出
+        
+        Args:
+            item_name: OCRで読み取られた商品名
+            
+        Returns:
+            正規化された食材名
+        """
+        if not item_name:
+            return item_name
+        
+        normalized = item_name.strip()
+        
+        # サイズ表記を削除（末尾）
+        size_patterns = [
+            r'\s*バラ\s*$',
+            r'\s*大\s*$',
+            r'\s*小\s*$',
+            r'\s*中\s*$',
+            r'\s*特大\s*$',
+            r'\s*特小\s*$',
+        ]
+        for pattern in size_patterns:
+            normalized = re.sub(pattern, '', normalized, flags=re.IGNORECASE)
+        
+        # 状態表記を削除（先頭・末尾）
+        state_patterns = [
+            r'^生\s*',
+            r'^国産\s*',
+            r'\s*国産\s*$',
+            r'^成分無調整\s*',
+            r'\s*成分無調整\s*$',
+        ]
+        for pattern in state_patterns:
+            normalized = re.sub(pattern, '', normalized, flags=re.IGNORECASE)
+        
+        # ブランド名を削除（先頭）
+        brand_patterns = [
+            r'^新ＢＰ\s*',
+            r'^ＢＰ\s*',
+            r'^新\s*',
+        ]
+        for pattern in brand_patterns:
+            normalized = re.sub(pattern, '', normalized, flags=re.IGNORECASE)
+        
+        # 商品説明を削除（中間・末尾）
+        description_patterns = [
+            r'\s*コクのある\s*',
+            r'\s*もっちり\s*',
+            r'\s*仕込み\s*',
+        ]
+        for pattern in description_patterns:
+            normalized = re.sub(pattern, '', normalized, flags=re.IGNORECASE)
+        
+        # 余分な空白を削除
+        normalized = re.sub(r'\s+', ' ', normalized).strip()
+        
+        return normalized
     
     async def extract_inventory_items(
         self,
