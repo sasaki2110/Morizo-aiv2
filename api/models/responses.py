@@ -145,3 +145,11 @@ class IngredientDeleteCandidatesResponse(BaseModel):
     success: bool = Field(..., description="処理成功フラグ")
     date: str = Field(..., description="日付（YYYY-MM-DD形式）")
     candidates: List[IngredientDeleteCandidate] = Field(..., description="削除候補食材リスト")
+
+
+class IngredientDeleteResponse(BaseModel):
+    """食材削除レスポンス"""
+    success: bool = Field(..., description="処理成功フラグ")
+    deleted_count: int = Field(..., description="削除件数（数量が0に設定された件数）")
+    updated_count: int = Field(..., description="更新件数（数量が0以外に更新された件数）")
+    failed_items: List[str] = Field(default_factory=list, description="失敗した食材リスト")

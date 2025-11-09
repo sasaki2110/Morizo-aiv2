@@ -189,6 +189,39 @@ class IntegrationTestClient:
         except requests.exceptions.RequestException as e:
             print(f"❌ HTTPリクエストエラー: {e}")
             return None
+    
+    def get_ingredient_delete_candidates(self, date: str):
+        """食材削除候補を取得（/api/recipe/ingredients/delete-candidates/{date}）"""
+        url = f"{self.base_url}/api/recipe/ingredients/delete-candidates/{date}"
+        
+        try:
+            response = self.session.get(url, timeout=30)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"❌ HTTPリクエストエラー: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"   レスポンス: {e.response.text}")
+            return None
+    
+    def delete_ingredients(self, date: str, ingredients: List[Dict[str, Any]]):
+        """食材を削除（/api/recipe/ingredients/delete）"""
+        url = f"{self.base_url}/api/recipe/ingredients/delete"
+        
+        payload = {
+            "date": date,
+            "ingredients": ingredients
+        }
+        
+        try:
+            response = self.session.post(url, json=payload, timeout=30)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"❌ HTTPリクエストエラー: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"   レスポンス: {e.response.text}")
+            return None
 
 
 # ============================================================================
@@ -562,6 +595,61 @@ async def run_auto_transition_test(client: IntegrationTestClient, test_case: Tes
         
         if verify_completion_response(selection_response_soup):
             print(f"✅ 献立完成確認成功")
+            
+            # 献立を保存
+            print(f"\n[ステップ] 献立を保存...")
+            save_response = client.save_menu(sse_session_id)
+            
+            if save_response and save_response.get("success"):
+                total_saved = save_response.get("total_saved", 0)
+                print(f"✅ 献立保存成功: {total_saved}件のレシピが保存されました")
+                
+                # 食材削除候補を取得して削除
+                print(f"\n[ステップ] 食材削除候補を取得して削除...")
+                from datetime import datetime
+                today = datetime.now().strftime("%Y-%m-%d")
+                
+                # 食材削除候補を取得
+                candidates_response = client.get_ingredient_delete_candidates(today)
+                if candidates_response and candidates_response.get("success"):
+                    candidates = candidates_response.get("candidates", [])
+                    print(f"✅ 食材削除候補を取得: {len(candidates)}件")
+                    
+                    if len(candidates) > 0:
+                        # 候補の一部（最大3件）を削除
+                        delete_items = []
+                        for candidate in candidates[:3]:  # 最大3件まで
+                            delete_items.append({
+                                "item_name": candidate.get("item_name"),
+                                "quantity": 0,
+                                "inventory_id": candidate.get("inventory_id")
+                            })
+                        
+                        if delete_items:
+                            print(f"   削除対象: {[item.get('item_name') for item in delete_items]}")
+                            
+                            # 食材削除を実行
+                            delete_response = client.delete_ingredients(
+                                date=today,
+                                ingredients=delete_items
+                            )
+                            
+                            if delete_response and delete_response.get("success"):
+                                deleted_count = delete_response.get("deleted_count", 0)
+                                updated_count = delete_response.get("updated_count", 0)
+                                failed_items = delete_response.get("failed_items", [])
+                                print(f"✅ 食材削除成功: deleted={deleted_count}, updated={updated_count}, failed={len(failed_items)}")
+                            else:
+                                print(f"⚠️ 食材削除が失敗しました: {delete_response}")
+                        else:
+                            print(f"⚠️ 削除対象がありません")
+                    else:
+                        print(f"⚠️ 食材削除候補がありません")
+                else:
+                    print(f"⚠️ 食材削除候補の取得が失敗しました: {candidates_response}")
+            else:
+                print(f"⚠️ 献立保存が失敗しました: {save_response}")
+            
             print(f"✅ 自動遷移検証テスト成功")
             return True
         else:
@@ -714,6 +802,62 @@ async def run_stage_flow_test(client: IntegrationTestClient, test_case: TestCase
                             
                             # 完了確認
                             if verify_completion_response(selection_response_soup):
+                                print(f"✅ 献立完成確認成功")
+                                
+                                # 献立を保存
+                                print(f"\n[ステップ] 献立を保存...")
+                                save_response = client.save_menu(sse_session_id)
+                                
+                                if save_response and save_response.get("success"):
+                                    total_saved = save_response.get("total_saved", 0)
+                                    print(f"✅ 献立保存成功: {total_saved}件のレシピが保存されました")
+                                    
+                                    # 食材削除候補を取得して削除
+                                    print(f"\n[ステップ] 食材削除候補を取得して削除...")
+                                    from datetime import datetime
+                                    today = datetime.now().strftime("%Y-%m-%d")
+                                    
+                                    # 食材削除候補を取得
+                                    candidates_response = client.get_ingredient_delete_candidates(today)
+                                    if candidates_response and candidates_response.get("success"):
+                                        candidates = candidates_response.get("candidates", [])
+                                        print(f"✅ 食材削除候補を取得: {len(candidates)}件")
+                                        
+                                        if len(candidates) > 0:
+                                            # 候補の一部（最大3件）を削除
+                                            delete_items = []
+                                            for candidate in candidates[:3]:  # 最大3件まで
+                                                delete_items.append({
+                                                    "item_name": candidate.get("item_name"),
+                                                    "quantity": 0,
+                                                    "inventory_id": candidate.get("inventory_id")
+                                                })
+                                            
+                                            if delete_items:
+                                                print(f"   削除対象: {[item.get('item_name') for item in delete_items]}")
+                                                
+                                                # 食材削除を実行
+                                                delete_response = client.delete_ingredients(
+                                                    date=today,
+                                                    ingredients=delete_items
+                                                )
+                                                
+                                                if delete_response and delete_response.get("success"):
+                                                    deleted_count = delete_response.get("deleted_count", 0)
+                                                    updated_count = delete_response.get("updated_count", 0)
+                                                    failed_items = delete_response.get("failed_items", [])
+                                                    print(f"✅ 食材削除成功: deleted={deleted_count}, updated={updated_count}, failed={len(failed_items)}")
+                                                else:
+                                                    print(f"⚠️ 食材削除が失敗しました: {delete_response}")
+                                            else:
+                                                print(f"⚠️ 削除対象がありません")
+                                        else:
+                                            print(f"⚠️ 食材削除候補がありません")
+                                    else:
+                                        print(f"⚠️ 食材削除候補の取得が失敗しました: {candidates_response}")
+                                else:
+                                    print(f"⚠️ 献立保存が失敗しました: {save_response}")
+                                
                                 print(f"✅ 基本フローのテスト成功")
                                 return True
         
@@ -975,6 +1119,50 @@ async def run_complete_scenario_test(client: IntegrationTestClient) -> bool:
                             print(f"⚠️ 保存されたレシピが0件です")
                         else:
                             print(f"✅ 献立保存成功: {total_saved}件のレシピが保存されました")
+                        
+                        # ステップ13: 食材削除候補を取得して削除
+                        print(f"\n[ステップ13] 食材削除候補を取得して削除...")
+                        from datetime import datetime
+                        today = datetime.now().strftime("%Y-%m-%d")
+                        
+                        # 食材削除候補を取得
+                        candidates_response = client.get_ingredient_delete_candidates(today)
+                        if candidates_response and candidates_response.get("success"):
+                            candidates = candidates_response.get("candidates", [])
+                            print(f"✅ 食材削除候補を取得: {len(candidates)}件")
+                            
+                            if len(candidates) > 0:
+                                # 候補の一部（最大3件）を削除
+                                delete_items = []
+                                for candidate in candidates[:3]:  # 最大3件まで
+                                    delete_items.append({
+                                        "item_name": candidate.get("item_name"),
+                                        "quantity": 0,
+                                        "inventory_id": candidate.get("inventory_id")
+                                    })
+                                
+                                if delete_items:
+                                    print(f"   削除対象: {[item.get('item_name') for item in delete_items]}")
+                                    
+                                    # 食材削除を実行
+                                    delete_response = client.delete_ingredients(
+                                        date=today,
+                                        ingredients=delete_items
+                                    )
+                                    
+                                    if delete_response and delete_response.get("success"):
+                                        deleted_count = delete_response.get("deleted_count", 0)
+                                        updated_count = delete_response.get("updated_count", 0)
+                                        failed_items = delete_response.get("failed_items", [])
+                                        print(f"✅ 食材削除成功: deleted={deleted_count}, updated={updated_count}, failed={len(failed_items)}")
+                                    else:
+                                        print(f"⚠️ 食材削除が失敗しました: {delete_response}")
+                                else:
+                                    print(f"⚠️ 削除対象がありません")
+                            else:
+                                print(f"⚠️ 食材削除候補がありません")
+                        else:
+                            print(f"⚠️ 食材削除候補の取得が失敗しました: {candidates_response}")
                         
                         print(f"✅ 完全シナリオのテスト成功")
                         return True

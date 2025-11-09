@@ -10,7 +10,7 @@ from typing import Dict, Any, List
 from datetime import datetime
 import json
 from config.loggers import GenericLogger
-from ..models import RecipeAdoptionRequest, RecipeAdoptionResponse, SavedRecipe, IngredientDeleteCandidatesResponse, IngredientDeleteCandidate
+from ..models import RecipeAdoptionRequest, RecipeAdoptionResponse, SavedRecipe, IngredientDeleteCandidatesResponse, IngredientDeleteCandidate, IngredientDeleteRequest, IngredientDeleteResponse
 from mcp_servers.recipe_history_crud import RecipeHistoryCRUD
 from mcp_servers.utils import get_authenticated_client
 from mcp_servers.inventory_crud import InventoryCRUD
@@ -293,3 +293,144 @@ async def get_ingredient_delete_candidates(
     except Exception as e:
         logger.error(f"❌ [API] Unexpected error in get_ingredient_delete_candidates: {e}")
         raise HTTPException(status_code=500, detail="削除候補の取得処理でエラーが発生しました")
+
+
+@router.post("/recipe/ingredients/delete", response_model=IngredientDeleteResponse)
+async def delete_ingredients(
+    request: IngredientDeleteRequest,
+    http_request: Request
+):
+    """指定された食材を在庫から削除（数量を0に設定）"""
+    try:
+        logger.info(f"🔍 [API] Ingredient delete request received: date={request.date}, ingredients={len(request.ingredients)}")
+        
+        # 1. 認証処理
+        authorization = http_request.headers.get("Authorization")
+        token = authorization[7:] if authorization and authorization.startswith("Bearer ") else ""
+        
+        user_info = getattr(http_request.state, 'user_info', None)
+        if not user_info:
+            logger.error("❌ [API] User info not found in request state")
+            raise HTTPException(status_code=401, detail="認証が必要です")
+        
+        user_id = user_info['user_id']
+        logger.info(f"🔍 [API] User ID: {user_id}")
+        
+        # 2. 認証済みSupabaseクライアントの作成
+        try:
+            client = get_authenticated_client(user_id, token)
+            logger.info(f"✅ [API] Authenticated client created for user: {user_id}")
+        except Exception as e:
+            logger.error(f"❌ [API] Failed to create authenticated client: {e}")
+            raise HTTPException(status_code=401, detail="認証に失敗しました")
+        
+        # 3. 在庫一覧を取得
+        inventory_crud = InventoryCRUD()
+        inventory_result = await inventory_crud.get_all_items(client, user_id)
+        
+        if not inventory_result.get("success"):
+            logger.error(f"❌ [API] Failed to get inventory list: {inventory_result.get('error')}")
+            raise HTTPException(status_code=500, detail="在庫情報の取得に失敗しました")
+        
+        inventory_items = inventory_result.get("data", [])
+        logger.info(f"🔍 [API] Retrieved {len(inventory_items)} inventory items")
+        
+        # 4. 食材名の正規化用
+        ingredient_mapper = IngredientMapperComponent(GenericLogger("api", "ingredient_mapper"))
+        
+        # 5. リクエストの食材名で在庫を検索して更新
+        deleted_count = 0
+        updated_count = 0
+        failed_items = []
+        
+        for ingredient_item in request.ingredients:
+            try:
+                item_name = ingredient_item.item_name
+                target_quantity = ingredient_item.quantity
+                inventory_id = ingredient_item.inventory_id
+                
+                # 在庫IDが指定されている場合は直接更新
+                if inventory_id:
+                    result = await inventory_crud.update_item_by_id(
+                        client=client,
+                        user_id=user_id,
+                        item_id=inventory_id,
+                        quantity=target_quantity
+                    )
+                    
+                    if result.get("success"):
+                        if target_quantity == 0:
+                            deleted_count += 1
+                        else:
+                            updated_count += 1
+                        logger.info(f"✅ [API] Updated inventory item: {inventory_id}, quantity={target_quantity}")
+                    else:
+                        failed_items.append(f"{item_name} (ID: {inventory_id})")
+                        logger.error(f"❌ [API] Failed to update inventory item: {inventory_id}")
+                else:
+                    # 食材名で検索（複数在庫がある場合はすべて更新）
+                    matched_items = []
+                    normalized_item_name = ingredient_mapper.normalize_ingredient_name(item_name)
+                    
+                    for inv_item in inventory_items:
+                        normalized_inv = ingredient_mapper.normalize_ingredient_name(inv_item.get("item_name", ""))
+                        if normalized_item_name == normalized_inv or \
+                           normalized_item_name in normalized_inv or \
+                           normalized_inv in normalized_item_name:
+                            matched_items.append(inv_item)
+                    
+                    if not matched_items:
+                        failed_items.append(f"{item_name} (在庫に存在しません)")
+                        logger.warning(f"⚠️ [API] Inventory item not found: {item_name}")
+                        continue
+                    
+                    # すべてのマッチした在庫を更新
+                    for inv_item in matched_items:
+                        inv_id = inv_item.get("id")
+                        result = await inventory_crud.update_item_by_id(
+                            client=client,
+                            user_id=user_id,
+                            item_id=inv_id,
+                            quantity=target_quantity
+                        )
+                        
+                        if result.get("success"):
+                            if target_quantity == 0:
+                                deleted_count += 1
+                            else:
+                                updated_count += 1
+                            logger.info(f"✅ [API] Updated inventory item: {inv_id}, quantity={target_quantity}")
+                        else:
+                            failed_items.append(f"{item_name} (ID: {inv_id})")
+                            logger.error(f"❌ [API] Failed to update inventory item: {inv_id}")
+                            
+            except Exception as e:
+                failed_items.append(f"{ingredient_item.item_name} (エラー: {str(e)})")
+                logger.error(f"❌ [API] Error processing ingredient: {ingredient_item.item_name}, error: {e}")
+        
+        # 6. レシピ履歴のingredients_deletedフラグを更新
+        crud = RecipeHistoryCRUD()
+        update_result = await crud.update_ingredients_deleted(
+            client=client,
+            user_id=user_id,
+            date=request.date,
+            deleted=True
+        )
+        
+        if not update_result.get("success"):
+            logger.warning(f"⚠️ [API] Failed to update ingredients_deleted flag: {update_result.get('error')}")
+        
+        logger.info(f"✅ [API] Ingredient delete completed: deleted={deleted_count}, updated={updated_count}, failed={len(failed_items)}")
+        
+        return IngredientDeleteResponse(
+            success=True,
+            deleted_count=deleted_count,
+            updated_count=updated_count,
+            failed_items=failed_items
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ [API] Unexpected error in delete_ingredients: {e}")
+        raise HTTPException(status_code=500, detail="食材削除処理でエラーが発生しました")

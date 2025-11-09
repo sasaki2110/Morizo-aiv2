@@ -5,8 +5,8 @@ API層 - データモデル
 リクエスト・レスポンスモデルの統合
 """
 
-from .requests import ChatRequest, ProgressUpdate, InventoryRequest, HealthRequest, RecipeAdoptionRequest, RecipeItem, MenuSaveRequest, CSVUploadError, CSVUploadResponse, OCRReceiptItem, OCRReceiptResponse
-from .responses import ChatResponse, HealthResponse, InventoryResponse, InventoryListResponse, InventoryItemResponse, ErrorResponse, SSEEvent, RecipeAdoptionResponse, SavedRecipe, SavedMenuRecipe, MenuSaveResponse, HistoryRecipe, HistoryEntry, MenuHistoryResponse, IngredientDeleteCandidate, IngredientDeleteCandidatesResponse
+from .requests import ChatRequest, ProgressUpdate, InventoryRequest, HealthRequest, RecipeAdoptionRequest, RecipeItem, MenuSaveRequest, CSVUploadError, CSVUploadResponse, OCRReceiptItem, OCRReceiptResponse, IngredientDeleteItem, IngredientDeleteRequest
+from .responses import ChatResponse, HealthResponse, InventoryResponse, InventoryListResponse, InventoryItemResponse, ErrorResponse, SSEEvent, RecipeAdoptionResponse, SavedRecipe, SavedMenuRecipe, MenuSaveResponse, HistoryRecipe, HistoryEntry, MenuHistoryResponse, IngredientDeleteCandidate, IngredientDeleteCandidatesResponse, IngredientDeleteResponse
 
 __all__ = [
     'ChatRequest',
@@ -35,5 +35,8 @@ __all__ = [
     'HistoryEntry',
     'MenuHistoryResponse',
     'IngredientDeleteCandidate',
-    'IngredientDeleteCandidatesResponse'
+    'IngredientDeleteCandidatesResponse',
+    'IngredientDeleteItem',
+    'IngredientDeleteRequest',
+    'IngredientDeleteResponse'
 ]

@@ -197,6 +197,54 @@ class RecipeHistoryCRUD:
         except Exception as e:
             self.logger.error(f"❌ [CRUD] Failed to get recent recipe titles: {e}")
             return {"success": False, "error": str(e), "data": []}
+    
+    async def update_ingredients_deleted(
+        self,
+        client: Client,
+        user_id: str,
+        date: str,  # YYYY-MM-DD形式
+        deleted: bool = True
+    ) -> Dict[str, Any]:
+        """指定日付のレシピ履歴のingredients_deletedフラグを更新"""
+        try:
+            self.logger.info(f"✏️ [CRUD] Updating ingredients_deleted flag for date: {date}")
+            
+            # 日付の検証と変換
+            try:
+                date_obj = datetime.strptime(date, "%Y-%m-%d").date()
+                start_datetime = datetime.combine(date_obj, datetime.min.time())
+                end_datetime = datetime.combine(date_obj, datetime.max.time())
+            except ValueError:
+                return {"success": False, "error": "Invalid date format (YYYY-MM-DD required)"}
+            
+            # 指定日付のレシピ履歴を取得
+            result = client.table("recipe_historys")\
+                .select("id")\
+                .eq("user_id", user_id)\
+                .gte("cooked_at", start_datetime.isoformat())\
+                .lte("cooked_at", end_datetime.isoformat())\
+                .execute()
+            
+            if not result.data:
+                self.logger.warning(f"⚠️ [CRUD] No recipe histories found for date: {date}")
+                return {"success": True, "data": [], "updated_count": 0}
+            
+            # ingredients_deletedフラグを更新
+            update_result = client.table("recipe_historys")\
+                .update({"ingredients_deleted": deleted})\
+                .eq("user_id", user_id)\
+                .gte("cooked_at", start_datetime.isoformat())\
+                .lte("cooked_at", end_datetime.isoformat())\
+                .execute()
+            
+            updated_count = len(update_result.data) if update_result.data else 0
+            self.logger.info(f"✅ [CRUD] Updated {updated_count} recipe histories")
+            
+            return {"success": True, "data": update_result.data, "updated_count": updated_count}
+            
+        except Exception as e:
+            self.logger.error(f"❌ [CRUD] Failed to update ingredients_deleted flag: {e}")
+            return {"success": False, "error": str(e)}
 
 
 if __name__ == "__main__":

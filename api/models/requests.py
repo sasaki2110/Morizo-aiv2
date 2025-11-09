@@ -128,3 +128,16 @@ class OCRReceiptResponse(BaseModel):
     items: List[OCRReceiptItem] = Field(default_factory=list, description="抽出されたアイテムリスト")
     registered_count: int = Field(..., description="登録された件数")
     errors: List[str] = Field(default_factory=list, description="エラーメッセージ")
+
+
+class IngredientDeleteItem(BaseModel):
+    """削除対象食材アイテム"""
+    item_name: str = Field(..., description="食材名")
+    quantity: float = Field(0, description="更新後の数量（0で削除）")
+    inventory_id: Optional[str] = Field(None, description="在庫ID（指定がある場合）")
+
+
+class IngredientDeleteRequest(BaseModel):
+    """食材削除リクエスト"""
+    date: str = Field(..., description="日付（YYYY-MM-DD形式）")
+    ingredients: List[IngredientDeleteItem] = Field(..., description="削除対象食材リスト")
