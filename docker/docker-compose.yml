@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  # Next.js Web アプリケーション
+  morizo-web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+    container_name: morizo-web
+    ports:
+      - "3000:3000"   # Next.js Web
+    networks:
+      - app-network
+
+  # Expo Mobile アプリケーション
+  morizo-mobile:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.mobile
+    container_name: morizo-mobile
+    ports:
+      - "8081:8081"   # Expo Dev Server
+      - "19000:19000" # Expo Web
+      - "19001:19001" # Expo DevTools
+      - "19006:19006" # Expo Tunnel
+    depends_on:
+      - morizo-web
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

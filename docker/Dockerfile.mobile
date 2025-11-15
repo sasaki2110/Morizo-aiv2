@@ -1,0 +1,42 @@
+# docker/Dockerfile.mobile
+FROM node:latest
+
+# 作業ディレクトリを設定
+WORKDIR /app
+
+# システムパッケージを更新・インストール
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    bash \
+    python3 \
+    make \
+    g++ \
+    procps \
+    grep \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node.js のバージョンを確認
+RUN node --version && npm --version
+
+# グローバルパッケージをインストール（Expo用）
+RUN npm install -g \
+    @expo/cli@latest \
+    @react-native-community/cli@latest \
+    typescript@latest \
+    @types/node@latest \
+    create-expo-app@latest
+
+# Webブラウザ対応のための依存関係をグローバルインストール
+RUN npm install -g \
+    react-dom@latest \
+    react-native-web@latest
+
+# yarnをインストール
+RUN npm install -g yarn@latest --force
+
+# ポートを公開
+EXPOSE 8081 19000 19001 19006
+
+# 開発サーバーを起動
+CMD ["tail", "-f", "/dev/null"]

@@ -1,0 +1,35 @@
+# docker/Dockerfile.web
+FROM node:latest
+
+# 作業ディレクトリを設定
+WORKDIR /app
+
+# システムパッケージを更新・インストール
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    bash \
+    python3 \
+    make \
+    g++ \
+    procps \
+    grep \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node.js のバージョンを確認
+RUN node --version && npm --version
+
+# グローバルパッケージをインストール（Next.js用）
+RUN npm install -g \
+    typescript@latest \
+    @types/node@latest \
+    create-next-app@latest
+
+# yarnをインストール
+RUN npm install -g yarn@latest --force
+
+# ポートを公開
+EXPOSE 3000
+
+# 開発サーバーを起動
+CMD ["tail", "-f", "/dev/null"]
